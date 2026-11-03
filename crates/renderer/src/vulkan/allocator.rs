@@ -730,13 +730,10 @@ mod tests {
             let production = crate::source_scan::production_text_or_whole(&src);
             let rel = path
                 .strip_prefix(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vulkan"))
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string();
+                .unwrap();
             let (name_expect, name_unwrap) = allowlist
                 .iter()
-                .find(|(allowed, _, _)| *allowed == rel)
+                .find(|(allowed, _, _)| std::path::Path::new(allowed) == rel)
                 .map(|(_, e, u)| (*e, *u))
                 .unwrap_or((0, 0));
             let expect_count = production.matches(".expect(\"allocator lock poisoned\")").count();
@@ -744,9 +741,10 @@ mod tests {
             assert_eq!(
                 (expect_count, unwrap_count),
                 (name_expect, name_unwrap),
-                "{rel}: direct allocator-lock acquires drifted from the #4599 allowlist — \
+                "{}: direct allocator-lock acquires drifted from the #4599 allowlist — \
                  route free/destroy/Drop locks through free_allocation_recovering / \
                  lock_recovering, or classify the new site here",
+                rel.display(),
             );
         }
     }

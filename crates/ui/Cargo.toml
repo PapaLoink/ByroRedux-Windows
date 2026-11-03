@@ -21,6 +21,7 @@ wgpu = "30"
 async-channel = "2"
 futures = "0.3"
 url = "2"
+percent-encoding = "2.3"
 
 # Image types (RgbaImage from capture_frame)
 

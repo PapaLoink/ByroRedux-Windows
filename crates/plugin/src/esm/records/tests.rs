@@ -2837,7 +2837,7 @@ fn all_record_parsers() -> Vec<(String, String, String, String)> {
             .strip_prefix(&root)
             .expect("under records/")
             .to_string_lossy()
-            .into_owned();
+            .replace('\\', "/");
         let prod = prod.as_str();
         for vis in [
             "pub fn parse_",

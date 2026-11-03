@@ -43,6 +43,7 @@ mod smithing;
 mod inventory;
 mod notifications;
 mod objectives;
+mod front_end;
 mod hud;
 mod linear_capture;
 mod list_cells;
@@ -536,8 +537,11 @@ mod bench_frame_distribution_tests {
 /// camera is above water or no submersion data is available — the
 /// composite shader treats `w == 0` as "underwater FX disabled".
 struct App {
+    front_end: Option<front_end::FrontEnd>,
     window: Option<Window>,
     renderer: Option<VulkanContext>,
+    initial_blend_preparation_complete: bool,
+    shader_restore_capture: bool,
     renderer_config: RendererConfig,
     world: World,
     scheduler: Scheduler,
@@ -916,6 +920,7 @@ impl Drop for App {
     /// Idempotent with the `CloseRequested` handler — `remove_resource`
     /// and `Option::take` are both no-ops the second time.
     fn drop(&mut self) {
+        self.front_end.take();
         // An unfinished interior apply owns GPU/ECS objects under its cell
         // root. Reclaim those before the renderer is torn down; simply
         // dropping the cursor would leave the partial cell's handles in the
@@ -1254,7 +1259,7 @@ impl App {
             }
             pending_player_messages.extend(output.lines);
         }
-        if !startup_load_queued {
+        if !startup_load_queued && !front_end::requested(args) {
             if let Err(error) = extensions::queue_session_event(
                 &world,
                 byroredux_sdk::event::SessionEvent {
@@ -1267,8 +1272,11 @@ impl App {
         }
 
         Self {
+            front_end: None,
             window: None,
             renderer: None,
+            initial_blend_preparation_complete: false,
+            shader_restore_capture: false,
             renderer_config,
             world,
             scheduler,

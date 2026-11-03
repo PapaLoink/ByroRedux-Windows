@@ -130,6 +130,27 @@ fn vanilla_corpus_parses() {
     }
 }
 
+/// Numeric spacing and baseline observations from the installed original font.
+#[test]
+#[ignore = "needs Oblivion game data on disk"]
+fn vanilla_font_metrics_align_menu_letters() {
+    let Some(assets) = open_assets() else { return; };
+    let fnt = assets.font(1).expect("original Kingthings Regular");
+    let name = String::from_utf8_lossy(&fnt[12..296]);
+    let tex = assets.font_texture(&format!("fonts\\{}.tex", name.split('\0').next().unwrap())).unwrap();
+    let font = byroredux_menuxml::Font::parse(&fnt, &tex).unwrap();
+    // Numeric observations from the installed 2006 Oblivion Misc BSA;
+    // no proprietary font records or atlas pixels are embedded in this test.
+    assert_eq!(font.measure_width("Options"),123.0);
+    assert_eq!(font.measure_width("Credits"),118.0);
+    assert_eq!(font.measure_width("Exit"),71.0);
+    assert_eq!(font.glyph(b'i').advance,10.0);
+    assert_eq!(font.glyph(b' ').advance,11.0);
+    let bottom = |c| { let g=font.glyph(c); g.y_offset+g.height };
+    assert_eq!(bottom(b'O'),bottom(b'n'));
+    assert!(bottom(b'p')>bottom(b'O'),"p must descend below the baseline");
+}
+
 /// Full HUD render with real fonts + DXT textures: frame is non-empty,
 /// bars land bottom-left, and a health override shrinks the red bar's
 /// drawn width. Frames are dumped to `target/menuxml/` as PNGs.

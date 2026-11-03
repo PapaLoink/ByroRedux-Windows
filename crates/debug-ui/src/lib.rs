@@ -433,6 +433,17 @@ impl DebugUiState {
         outputs
     }
 
+    /// Draw an engine-owned frontend page without constructing a world snapshot.
+    pub fn run_front_end<T>(&mut self, window: &Window, draw: impl FnOnce(&egui::Context) -> T) -> T {
+        let input = self.winit().take_egui_input(window);
+        self.egui_ctx.begin_pass(input);
+        let result = draw(&self.egui_ctx);
+        let output = self.egui_ctx.end_pass();
+        self.winit().handle_platform_output(window, output.platform_output.clone());
+        self.last_output = Some(output);
+        result
+    }
+
     /// Drain the stashed `FullOutput`. The renderer calls this in
     /// `draw_frame`; returns `None` when the overlay is hidden or
     /// the App didn't call [`Self::run`] this frame.

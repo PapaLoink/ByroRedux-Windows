@@ -15,6 +15,7 @@ const PRODUCTION_SOURCE: &str = concat!(
     include_str!("components.rs"),
     include_str!("system.rs"),
     include_str!("cache.rs"),
+    include_str!("presentation.rs"),
 );
 
 /// A new production module that is not listed in [`PRODUCTION_SOURCE`] would
@@ -1002,6 +1003,7 @@ fn play_oneshot_queue_caps_at_max_pending_when_active() {
         active_sounds: Vec::new(),
         pending_oneshots: VecDeque::new(),
         oneshots_requested: 0,
+        presentation: None,
         music: None,
         script_music: None,
         reverb_send: None,
@@ -1749,6 +1751,7 @@ fn emitter_position_follows_the_source_entity_regression_3086() {
         active_sounds: Vec::new(),
         pending_oneshots: std::collections::VecDeque::new(),
         oneshots_requested: 0,
+        presentation: None,
         music: None,
         script_music: None,
         reverb_send: None,
@@ -1873,6 +1876,7 @@ fn anchored_voice_follows_survives_prune_and_stops() {
         active_sounds: Vec::new(),
         pending_oneshots: std::collections::VecDeque::new(),
         oneshots_requested: 0,
+        presentation: None,
         music: None,
         script_music: None,
         reverb_send: None,

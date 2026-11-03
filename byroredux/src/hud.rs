@@ -198,6 +198,13 @@ pub(crate) struct HudAssets {
 }
 
 impl HudAssets {
+    pub(crate) fn oblivion(data: &std::path::Path) -> anyhow::Result<Self> {
+        Ok(Self {
+            misc: Archive::open(&data.join("Oblivion - Misc.bsa").to_string_lossy()).map_err(anyhow::Error::msg)?,
+            textures: vec![Archive::open(&data.join("Oblivion - Textures - Compressed.bsa").to_string_lossy()).map_err(anyhow::Error::msg)?],
+            profile: HudGameProfile::oblivion(),
+        })
+    }
     fn extract_texture(&self, path: &str) -> Option<Vec<u8>> {
         extract_first(self.textures.iter().rev(), path)
     }

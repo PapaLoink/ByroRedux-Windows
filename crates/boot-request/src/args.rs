@@ -255,23 +255,21 @@ mod tests {
     #[test]
     fn a_self_contained_request_emits_joined_paths_with_masters_first() {
         let expansion = self_contained().to_args(&argv(&["byroredux"]));
-        assert_eq!(
-            expansion.args,
-            argv(&[
-                "--master",
-                "/games/SkyrimSE/Data/Skyrim.esm",
-                "--master",
-                "/games/SkyrimSE/Data/Update.esm",
-                "--esm",
-                "/games/SkyrimSE/Data/Dawnguard.esm",
-                "--bsa",
-                "/games/SkyrimSE/Data/Skyrim - Meshes0.bsa",
-                "--textures-bsa",
-                "/games/SkyrimSE/Data/Skyrim - Textures0.bsa",
-                "--scripts-bsa",
-                "/games/SkyrimSE/Data/Skyrim - Misc.bsa",
-            ])
-        );
+        let data = Path::new("/games/SkyrimSE/Data");
+        let expected: Vec<_> = [
+            ("--master", "Skyrim.esm"),
+            ("--master", "Update.esm"),
+            ("--esm", "Dawnguard.esm"),
+            ("--bsa", "Skyrim - Meshes0.bsa"),
+            ("--textures-bsa", "Skyrim - Textures0.bsa"),
+            ("--scripts-bsa", "Skyrim - Misc.bsa"),
+        ]
+        .into_iter()
+        .flat_map(|(flag, file)| {
+            [flag.to_string(), data.join(file).to_string_lossy().into_owned()]
+        })
+        .collect();
+        assert_eq!(expansion.args, expected);
         // Never `--game`: a self-contained request exists precisely because the
         // registry's answer was wrong, so re-entering the registry would undo it.
         assert!(!expansion.args.iter().any(|a| a == "--game"));

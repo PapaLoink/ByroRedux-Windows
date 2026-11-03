@@ -6,6 +6,19 @@ run the engine, what do you see?
 
 **Legend:** ✓ Working · ~ Partial / known gaps · ✗ Not started · — Not applicable
 
+**Native Windows front end (3 November 2026):** Oblivion is partial. Bare
+`--esm Oblivion.esm` discovery and failed-startup scheduler handling are fixed;
+3,465 application tests and the installed original-menu/movie resource smoke
+test pass. Full presentation/input parity, New Game and Bethesda saves remain
+unverified or unsupported. New Vegas has synthetic shared discovery coverage,
+but this Oblivion-specific front-end route does not support it. See the
+[startup regression evidence](engine/oblivion-front-end.md).
+
+**Oblivion menu typography:** the FNT ascent/spacing mix-up is corrected using
+the installed Kingthings font metrics and documented layout. MenuXml synthetic
+tests and the installed Oblivion corpus pass. Full original-runtime visual parity
+and New Vegas font appearance remain unverified; see the same evidence page.
+
 **Bench record:** Numbers in the *Cells* row reference the stepped-camera
 75-run matrix (`2da754e7`, 2026-09-03): all 75 state-gated runs accepted. See
 [ROADMAP.md](../ROADMAP.md) for the full preset table and repro commands.
@@ -31,10 +44,11 @@ extracts fine — that framing was a stale premise, closed by #699.)
 
 ## Rendering
 
-**Native Windows Oblivion verification (3 November 2026):** startup preparation
-of loaded blend states passed a 3,600-frame original-interior camera run and a
-warm interactive restart. Later-loaded blend states and whole-game stability
-remain unverified; see [evidence and limits](engine/windows-blend-pipeline-preparation.md).
+**Native Windows Oblivion verification (3 November 2026):** blend preparation now
+runs on a worker at startup and after cell/material updates, with a final draw
+preflight. Original-content smoke checks cover native TAA and a later Anvil Castle
+Great Hall load under FSR3. Long cold-compilation window handling and exterior
+boundary traversal remain partially verified; see [evidence and limits](engine/windows-blend-pipeline-preparation.md).
 
 | Feature | Status | Notes |
 |---|---|---|

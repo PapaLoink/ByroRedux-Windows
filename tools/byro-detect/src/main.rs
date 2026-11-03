@@ -216,11 +216,12 @@ mod tests {
     #[test]
     fn accepts_the_documented_flags() {
         assert_eq!(parse(&[]), Ok(Some(Options::default())));
+        let profiles = std::env::temp_dir().join("p.toml");
         assert_eq!(
-            parse(&["--write", "--profiles", "/tmp/p.toml"]),
+            parse(&["--write", "--profiles", profiles.to_str().unwrap()]),
             Ok(Some(Options {
                 write: true,
-                profiles: Some(PathBuf::from("/tmp/p.toml")),
+                profiles: Some(profiles),
             }))
         );
         assert_eq!(parse(&["--write", "--help"]), Ok(None));

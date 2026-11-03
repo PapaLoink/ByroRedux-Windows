@@ -449,6 +449,7 @@ fn every_component_or_resource_impl_is_saved_or_explicitly_allowlisted() {
     /// Verified 2026-08-05 against real (non-`#[cfg(test)]`) insertion
     /// sites for every entry — see the individual reasons.
     const NOT_SAVED_BY_DESIGN: &[(&str, &str)] = &[
+        ("SceneStartArgs", "one-shot front-end session recipe consumed before scene setup; never part of game state"),
         // ── M-LIGHT reference rungs (#6600) ─────────────────────────
         ("CornellMeshSources", "CPU copies of a Cornell reference rung's uploaded meshes, held only for --export-mitsuba; rebuilt by the rung's scene setup and keyed by session-local mesh handles"),
         ("CornellTextureSources", "CPU copies of a Cornell reference rung's registered textures, held only for --export-mitsuba; rebuilt by the rung's scene setup and keyed by session-local texture handles"),

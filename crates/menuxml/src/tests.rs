@@ -1265,6 +1265,7 @@ fn text_line_advances_and_tints() {
                 width: if inked { 4.0 } else { 0.0 },
                 height: if inked { 8.0 } else { 0.0 },
                 advance: if inked { 6.0 } else { 0.0 },
+                x_offset: 0.0,
                 y_offset: 0.0,
                 inked,
             }

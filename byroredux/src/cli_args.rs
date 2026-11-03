@@ -98,7 +98,15 @@ pub fn esm_discovery_root(args: &[String]) -> Result<(String, std::path::PathBuf
         .ok_or_else(|| "--hud requires --esm <path> (archive discovery root)".to_string())?;
     let esm_dir = std::path::PathBuf::from(&esm)
         .parent()
-        .map(|dir| dir.to_path_buf())
+        // A bare filename has an empty parent, which Windows cannot
+        // canonicalize. Its assets live in the current working directory.
+        .map(|dir| {
+            if dir.as_os_str().is_empty() {
+                std::path::PathBuf::from(".")
+            } else {
+                dir.to_path_buf()
+            }
+        })
         .ok_or_else(|| "--hud: cannot resolve the --esm directory".to_string())?;
     Ok((esm, esm_dir))
 }
@@ -431,6 +439,21 @@ mod tests {
             args(&["byroredux", "--hud", "--esm", "--cell"]),
         ] {
             assert!(esm_discovery_root(&bad).unwrap_err().contains("--esm"));
+        }
+    }
+
+    #[test]
+    fn esm_discovery_root_resolves_bare_plugins_for_both_game_profiles() {
+        for plugin in ["Oblivion.esm", "FalloutNV.esm"] {
+            let (_, dir) = esm_discovery_root(&args(&["byroredux", "--esm", plugin])).unwrap();
+            assert_eq!(dir, std::path::PathBuf::from("."));
+            assert_eq!(
+                dir.canonicalize().unwrap(),
+                std::env::current_dir().unwrap().canonicalize().unwrap()
+            );
+            let relative = std::path::Path::new("Data").join(plugin);
+            let (_, dir) = esm_discovery_root(&args(&["byroredux", "--esm", relative.to_str().unwrap()])).unwrap();
+            assert_eq!(dir, std::path::PathBuf::from("Data"));
         }
     }
 

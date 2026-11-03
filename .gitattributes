@@ -1,3 +1,17 @@
+# Source-contract tests inspect Rust, shader and documentation text verbatim.
+# Keep those inputs identical on Windows and Unix, regardless of core.autocrlf.
+*.rs text eol=lf
+*.glsl text eol=lf
+*.vert text eol=lf
+*.frag text eol=lf
+*.comp text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.py text eol=lf
+
 # Preserve upstream FidelityFX/generated formatting verbatim. Local patches are
 # documented separately in third_party/fidelityfx-sdk-v1.1.4/UPSTREAM.md.
-third_party/fidelityfx-sdk-v1.1.4/** -whitespace
+third_party/fidelityfx-sdk-v1.1.4/** !text !eol -whitespace

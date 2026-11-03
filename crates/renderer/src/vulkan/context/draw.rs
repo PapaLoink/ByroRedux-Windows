@@ -152,7 +152,7 @@ impl VulkanContext {
         // (not `Ok(true)`) avoids a recreate-retry loop when the
         // underlying surface is still invalid — recovery rides the
         // next `Resized` / focus event instead.
-        if self.swapchain.framebuffers.is_empty() {
+        if self.swapchain.framebuffers.is_empty() || !self.prepare_draw_blend_states(draw_commands)? {
             return Ok(false);
         }
 
@@ -1074,7 +1074,7 @@ mod framebuffers_empty_guard_tests {
         // test's own literal by searching from the top (the guard at the
         // top of draw_frame precedes every test module in the file).
         let guard_pos = src
-            .find("if self.swapchain.framebuffers.is_empty() {")
+            .find("if self.swapchain.framebuffers.is_empty()")
             .expect("draw_frame must guard on empty framebuffers (#1211)");
 
         // The split-out acquire path: `draw_frame` delegates to it, and the
@@ -1259,7 +1259,7 @@ mod skin_dispatch_ran_ordering_tests {
             .find("self.skin_state_submitted = false;")
             .expect("draw_frame must reset skin_state_submitted (#3991)");
         let fb_guard = src
-            .find("if self.swapchain.framebuffers.is_empty() {")
+            .find("if self.swapchain.framebuffers.is_empty()")
             .expect("draw_frame must guard on empty framebuffers (#1211)");
         assert!(record_reset < fb_guard && submit_reset < fb_guard);
         // And the flag is only ever SET from the record-time latch, inside the
@@ -1280,7 +1280,7 @@ mod skin_dispatch_ran_ordering_tests {
             .find("self.skin_dispatch_ran = false;")
             .expect("draw_frame must reset skin_dispatch_ran to false (#1796)");
         let fb_guard_pos = src
-            .find("if self.swapchain.framebuffers.is_empty() {")
+            .find("if self.swapchain.framebuffers.is_empty()")
             .expect("draw_frame must guard on empty framebuffers (#1211)");
         // #3991 — the second stale needle. The `ERROR_OUT_OF_DATE_KHR` match
         // moved into `sync_and_acquire_frame` when #3282 split `draw_frame`
@@ -1350,7 +1350,7 @@ mod bind_inverse_upload_failed_reset_tests {
             .find("self.bind_inverse_upload_failed = false;")
             .expect("draw_frame must reset bind_inverse_upload_failed to false (#3569)");
         let fb_guard_pos = src
-            .find("if self.swapchain.framebuffers.is_empty() {")
+            .find("if self.swapchain.framebuffers.is_empty()")
             .expect("draw_frame must guard on empty framebuffers (#1211)");
 
         assert!(

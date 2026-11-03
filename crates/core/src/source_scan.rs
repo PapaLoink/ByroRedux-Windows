@@ -7,6 +7,29 @@
 //! this helper came to be copied into renderer, physics and the bin crate
 //! with three different needles before being centralized here (#5100).
 
+/// Locate the first top-level test-module marker, preserving byte offsets into
+/// the original input. Either newline may independently be LF or CRLF.
+fn test_module_start(src: &str) -> Option<(usize, usize)> {
+    src.match_indices("#[cfg(test)]")
+        .find_map(|(start, _)| {
+            let before = &src[..start];
+            if !before.is_empty() && !before.ends_with('\n') {
+                return None;
+            }
+            let after = &src[start + "#[cfg(test)]".len()..];
+            let next_line = after
+                .strip_prefix("\r\n")
+                .or_else(|| after.strip_prefix('\n'))?;
+            next_line.starts_with("mod ").then(|| {
+                let cut = before
+                    .strip_suffix("\r\n")
+                    .or_else(|| before.strip_suffix('\n'))
+                    .map_or(0, str::len);
+                (cut, start)
+            })
+        })
+}
+
 /// A source file's production text: everything before its first
 /// `#[cfg(test)] mod`.
 ///
@@ -20,9 +43,9 @@
 /// the file's test modules trail its production code; a needle that lives
 /// after the first test module fails the scan loudly rather than passing.
 pub fn production_text(src: &str) -> &str {
-    src.split_once("\n#[cfg(test)]\nmod ")
+    test_module_start(src)
+        .map(|(cut, _)| &src[..cut])
         .expect("source has no `#[cfg(test)] mod` — nothing to cut, so it is not a self-scan")
-        .0
 }
 
 /// [`production_text`] for a file that MAY have no test module — a scan
@@ -34,8 +57,7 @@ pub fn production_text(src: &str) -> &str {
 /// [`production_text`] when the file is known to carry a test module: it
 /// fails loudly if that stops being true, this does not.
 pub fn production_text_or_whole(src: &str) -> &str {
-    src.split_once("\n#[cfg(test)]\nmod ")
-        .map_or(src, |(production, _)| production)
+    test_module_start(src).map_or(src, |(cut, _)| &src[..cut])
 }
 
 /// The inverse of [`strip_test_modules`]: the bodies of every top-level
@@ -46,12 +68,24 @@ pub fn production_text_or_whole(src: &str) -> &str {
 pub fn test_module_text(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut rest = src;
-    while let Some(start) = rest.find("\n#[cfg(test)]\nmod ") {
-        let after = &rest[start + 1..];
-        match after.find("\n}\n") {
-            Some(end) => {
-                out.push_str(&after[..end]);
-                rest = &after[end + 3..];
+    while let Some((_, start)) = test_module_start(rest) {
+        let after = &rest[start..];
+        let close = after.match_indices("\n}").find_map(|(newline, _)| {
+            let tail = &after[newline + 2..];
+            let ending = if tail.starts_with("\r\n") {
+                2
+            } else if tail.starts_with('\n') {
+                1
+            } else {
+                return None;
+            };
+            let cut = newline - usize::from(after[..newline].ends_with('\r'));
+            Some((cut, newline + 2 + ending))
+        });
+        match close {
+            Some((cut, end)) => {
+                out.push_str(&after[..cut]);
+                rest = &after[end..];
             }
             None => {
                 out.push_str(after);
@@ -387,6 +421,42 @@ mod tests {
         // No test module at all: the whole file is production.
         let none = "fn a() {}\nfn b() {}\n";
         assert_eq!(production_text_or_whole(none), none);
+    }
+
+    #[test]
+    fn production_scans_accept_crlf_and_mixed_newlines_without_copying() {
+        for before in ["\n", "\r\n"] {
+            for after in ["\n", "\r\n"] {
+                let src = format!(
+                    "fn a() {{}}{before}#[cfg(test)]{after}use keep;{before}fn b() {{}}{before}#[cfg(test)]{after}mod tests {{\n    needle\n}}\n"
+                );
+                let expected =
+                    format!("fn a() {{}}{before}#[cfg(test)]{after}use keep;{before}fn b() {{}}");
+                let production = production_text(&src);
+                assert_eq!(production, expected);
+                assert_eq!(production_text_or_whole(&src), expected);
+                assert_eq!(production.as_ptr(), src.as_ptr());
+                assert!(!production.contains("needle"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_module_extraction_accepts_crlf_and_keeps_later_modules() {
+        let lf = "fn a() {}\n#[cfg(test)]\nmod first {\n    first_needle\n}\nfn between() {}\n#[cfg(test)]\nmod second {\n    second_needle\n}\nfn last() {}\n";
+        let expected = test_module_text(lf);
+        let crlf = lf.replace('\n', "\r\n");
+        let actual = test_module_text(&crlf);
+        assert_eq!(actual.replace("\r\n", "\n"), expected);
+        assert!(actual.contains("first_needle") && actual.contains("second_needle"));
+        assert!(!actual.contains("fn between") && !actual.contains("fn last"));
+        let no_tests = "fn a() {}\r\n#[cfg(test)]\r\nuse keep;\r\n";
+        assert_eq!(production_text_or_whole(no_tests), no_tests);
+        assert!(test_module_text(no_tests).is_empty());
+        let adjacent = "#[cfg(test)]\r\nmod first {\r\n    first_needle\r\n}\r\n#[cfg(test)]\r\nmod second {\r\n    second_needle\r\n}\r\n";
+        assert_eq!(production_text(adjacent), "");
+        let extracted = test_module_text(adjacent);
+        assert!(extracted.contains("first_needle") && extracted.contains("second_needle"));
     }
 
     #[test]

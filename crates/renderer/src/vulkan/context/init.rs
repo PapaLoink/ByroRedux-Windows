@@ -584,7 +584,6 @@ impl VulkanContext {
             mut accel_manager,
             pipeline_cache,
         } = swapchain;
-
         let ComputePasses { cluster_cull, skin_compute, skin_palette, gpu_timers } = create_compute_passes(&device, &gpu_allocator, pipeline_cache, &scene_buffers, &device_caps);
 
         // 14. Graphics pipeline (with depth test + descriptor set layouts for set 0 + set 1).
@@ -897,6 +896,7 @@ impl VulkanContext {
             pipeline: pipelines.opaque,
             pipeline_early: pipelines.opaque_early,
             pipeline_wireframe: pipelines.opaque_wireframe,
+            blend_preparation: None,
             blend_pipeline_cache: FxHashMap::default(),
             scratch: ScratchBuffers {
                 gpu_instances_scratch: Vec::new(),

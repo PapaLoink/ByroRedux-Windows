@@ -1013,19 +1013,19 @@ mod tests {
 /// write is the copy-drift these helpers were made to end.
 #[cfg(test)]
 mod hand_rolled_descriptor_code_tests {
-    fn rust_sources(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+    fn rust_sources(dir: &std::path::Path, out: &mut Vec<(std::path::PathBuf, String)>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
                 rust_sources(&path, out);
             } else if path.extension().is_some_and(|e| e == "rs") {
                 let text = std::fs::read_to_string(&path).unwrap();
-                out.push((path.to_string_lossy().into_owned(), text));
+                out.push((path, text));
             }
         }
     }
 
-    fn renderer_sources() -> Vec<(String, String)> {
+    fn renderer_sources() -> Vec<(std::path::PathBuf, String)> {
         let mut out = Vec::new();
         rust_sources(
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
@@ -1052,15 +1052,17 @@ mod hand_rolled_descriptor_code_tests {
             if !layout_exempt {
                 assert!(
                     !production.contains(&layout),
-                    "{path} hand-writes a layout binding — use descriptors::layout_binding / \
-                     compute_binding (#5593)"
+                    "{} hand-writes a layout binding — use descriptors::layout_binding / \
+                     compute_binding (#5593)",
+                    path.display()
                 );
             }
             if !is_descriptors {
                 assert!(
                     !production.contains(&write),
-                    "{path} hand-rolls a WriteDescriptorSet — use the descriptors::write_* \
-                     helpers (#5595)"
+                    "{} hand-rolls a WriteDescriptorSet — use the descriptors::write_* \
+                     helpers (#5595)",
+                    path.display()
                 );
             }
             if !is_descriptors {
@@ -1069,7 +1071,8 @@ mod hand_rolled_descriptor_code_tests {
             if !path.ends_with("vulkan/mod.rs") {
                 assert!(
                     !production.contains(&macro_def),
-                    "{path} redefines try_or_cleanup! — use the shared one in vulkan/mod.rs (#5594)"
+                    "{} redefines try_or_cleanup! — use the shared one in vulkan/mod.rs (#5594)",
+                    path.display()
                 );
             }
             // #5809 — a new bare `create_sampler(` outside this file is
@@ -1079,7 +1082,7 @@ mod hand_rolled_descriptor_code_tests {
             // max_lod mip chain, and the REPEAT noise samplers
             // (cloud_noise, volumetrics density-noise).
             let sampler_exempt = matches!(
-                path.as_str(),
+                path.as_path(),
                 p if p.ends_with("vulkan/context/helpers.rs")
                     || p.ends_with("texture_registry/mod.rs")
                     || p.ends_with("vulkan/sky_cube.rs")
@@ -1090,9 +1093,10 @@ mod hand_rolled_descriptor_code_tests {
             if !is_descriptors && !sampler_exempt {
                 assert!(
                     !production.contains(".create_sampler("),
-                    "{path} hand-builds a sampler — use descriptors::clamp_sampler \
+                    "{} hand-builds a sampler — use descriptors::clamp_sampler \
                      (or, if genuinely different, extend the allowlist with a \
-                     reason) (#5809)"
+                     reason) (#5809)",
+                    path.display()
                 );
             }
         }

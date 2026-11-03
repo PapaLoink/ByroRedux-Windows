@@ -116,6 +116,7 @@ pub struct EvalState<'a> {
     /// Reference-depth guard: a self-referential op chain (possible in
     /// third-party menus) must not recurse forever.
     depth: u32,
+    fonts: Option<&'a [Option<std::sync::Arc<crate::font::Font>>]>,
 }
 
 /// Hard cap on chained trait reads. Vanilla chains are ≤ 3 deep; 32
@@ -136,7 +137,13 @@ impl<'a> EvalState<'a> {
             overrides,
             memo: HashMap::new(),
             depth: 0,
+            fonts: None,
         }
+    }
+
+    pub fn with_fonts(mut self, fonts: &'a [Option<std::sync::Arc<crate::font::Font>>]) -> Self {
+        self.fonts = Some(fonts);
+        self
     }
 
     /// Evaluate every trait of every tile, in arena (document) order.
@@ -169,6 +176,20 @@ impl<'a> EvalState<'a> {
         }
         let raw = self.doc.tiles[tile].traits.get(&key).cloned();
         let value = match raw {
+            None if self.doc.tiles[tile].kind == crate::parse::TileKind::Text && self.fonts.is_some()
+                && matches!(key.as_str(), "width" | "height" | "font") => {
+                if key == "font" { Scalar::Num(1.0) } else {
+                    self.depth += 1;
+                    let index = self.trait_value(tile, "font").as_num() as usize;
+                    let text = match self.trait_value(tile, "string") {
+                        Scalar::Str(s) => s, Scalar::Num(_) => String::new(),
+                    };
+                    self.depth -= 1;
+                    let size = self.fonts.and_then(|f| f.get(index)).and_then(|f| f.as_ref())
+                        .map_or(0.0, |font| if key == "width" { font.measure_width(&text) } else { font.line_height() });
+                    Scalar::Num(size)
+                }
+            }
             None => default_trait_value(&key),
             Some(RawTrait::Num(n)) => Scalar::Num(n),
             Some(RawTrait::Str(s)) => Scalar::Str(expand_class_entity(&s)),

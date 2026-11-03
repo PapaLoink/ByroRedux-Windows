@@ -10,7 +10,6 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::io;
-use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -483,7 +482,12 @@ impl SuccessResponse for MemoryResponse {
 }
 
 pub(crate) fn archive_movie_url(movie_path: &str) -> Result<Url, String> {
-    let mut virtual_path = PathBuf::from("/");
+    // Archive paths are virtual URLs, not host filesystem paths. In particular,
+    // a root without a drive cannot be passed to Url::from_file_path on Windows.
+    let mut url = Url::parse("file:///").expect("constant archive root URL");
+    let mut count = 0;
+    let mut segments = url.path_segments_mut().expect("file URLs have path segments");
+    segments.clear();
     for component in movie_path.replace('\\', "/").split('/') {
         match component {
             "" | "." => {}
@@ -492,40 +496,44 @@ pub(crate) fn archive_movie_url(movie_path: &str) -> Result<Url, String> {
                     "Scaleform movie path may not escape the archive root: {movie_path:?}"
                 ));
             }
-            component => virtual_path.push(component),
+            component if component.contains([':', '\0']) => {
+                return Err(format!("invalid Scaleform movie path: {movie_path:?}"));
+            }
+            component => {
+                segments.push(component);
+                count += 1;
+            }
         }
     }
-    if virtual_path == Path::new("/") {
+    drop(segments);
+    if count == 0 {
         return Err("Scaleform movie path is empty".to_string());
     }
-    Url::from_file_path(&virtual_path)
-        .map_err(|()| format!("invalid Scaleform movie path: {movie_path:?}"))
+    Ok(url)
 }
 
 fn archive_path_from_url(url: &Url) -> Result<String, String> {
-    if url.scheme() != "file" {
+    if url.scheme() != "file" || url.host_str().is_some() {
         return Err(format!(
             "Scaleform archive navigator refuses non-local URL: {url}"
         ));
     }
-    let mut file_url = url.clone();
-    file_url.set_query(None);
-    file_url.set_fragment(None);
-    let path = file_url
-        .to_file_path()
-        .map_err(|()| format!("could not convert Scaleform URL to an archive path: {url}"))?;
+    let path = percent_encoding::percent_decode_str(url.path())
+        .decode_utf8()
+        .map_err(|_| format!("invalid UTF-8 in Scaleform archive URL: {url}"))?;
     let mut components = Vec::new();
-    for component in path.components() {
+    for component in path.replace('\\', "/").split('/') {
         match component {
-            Component::Normal(component) => {
-                components.push(component.to_string_lossy().into_owned());
-            }
-            Component::RootDir | Component::CurDir => {}
-            Component::ParentDir | Component::Prefix(_) => {
+            "" | "." => {}
+            ".." => {
                 return Err(format!(
                     "unsafe Scaleform archive path resolved from URL: {url}"
                 ));
             }
+            component if component.contains([':', '\0']) => {
+                return Err(format!("unsafe Scaleform archive path resolved from URL: {url}"));
+            }
+            component => components.push(component.to_owned()),
         }
     }
     if components.is_empty() {
@@ -996,6 +1004,13 @@ mod tests {
             "interface\\shared menus\\hud.swf"
         );
         assert!(archive_movie_url("interface\\..\\outside.swf").is_err());
+        assert!(archive_movie_url("C:\\outside.swf").is_err());
+        assert!(archive_path_from_url(&url::Url::parse("file://server/share/movie.swf").unwrap()).is_err());
+        assert!(archive_path_from_url(&url::Url::parse("file:///C:/outside.swf").unwrap()).is_err());
+        assert!(archive_path_from_url(&url::Url::parse("file:///interface/%00.swf").unwrap()).is_err());
+        assert!(archive_path_from_url(&url::Url::parse("file:///interface/%FF.swf").unwrap()).is_err());
+        let with_suffix = url::Url::parse("file:///interface/shared%20menus/hud.swf?v=1#frame").unwrap();
+        assert_eq!(archive_path_from_url(&with_suffix).unwrap(), "interface\\shared menus\\hud.swf");
     }
 
     #[test]

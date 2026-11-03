@@ -135,6 +135,12 @@ impl App {
     /// pause menu's Quit action.
     pub(crate) fn shutdown(&mut self, event_loop: &ActiveEventLoop) {
         log::info!("Shutdown requested");
+        self.front_end.take();
+        self.world.resource_mut::<byroredux_audio::AudioWorld>().stop_presentation();
+        self.world.resource_mut::<byroredux_audio::AudioWorld>().stop_music(0.0);
+        if let Some(win) = self.window.as_ref() {
+            win.set_visible(false);
+        }
         crate::extensions::shutdown_extension_host(&self.world);
         self.cancel_interior_cell_apply();
         if let (Some(ref mut state), Some(ref mut ctx)) =
@@ -1083,6 +1089,7 @@ impl ApplicationHandler for App {
                 self.renderer = Some(ctx);
                 self.window = Some(win);
                 self.last_frame = Instant::now();
+                if self.start_front_end(event_loop) { return; }
                 self.setup_scene();
                 if self
                     .world
@@ -1103,18 +1110,10 @@ impl ApplicationHandler for App {
                 // M41.0 Phase 1b.x — Prime the scene's transform state
                 // BEFORE the event loop starts.
                 self.scheduler.run(&self.world, 0.0);
-                if let Err(e) = crate::render::prepare_loaded_blend_pipelines(
-                    &self.world,
-                    self.renderer.as_mut().unwrap(),
-                ) {
-                    log::error!("Loaded-scene blend pipeline preparation failed: {e:#}");
-                    event_loop.exit();
-                    return;
-                }
-                // Loading and shader compilation are not a gameplay time step.
+                // Preparation is polled after content mutations, before drawing.
+                // Return control to winit now.
                 self.last_frame = Instant::now();
                 self.renderer.as_ref().unwrap().log_memory_usage();
-                log::info!("Engine ready — entering game loop");
             }
             Err(e) => {
                 log::error!("Vulkan init failed: {e:#}");
@@ -1129,12 +1128,22 @@ impl ApplicationHandler for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
+        if event_loop.exiting() { return; }
+        if self.front_end_window_event(event_loop, &event) { return; }
         // Focus loss must release gameplay state even if a native/Scaleform
         // menu consumes the event below. Key-up events may go to another
         // application after Alt-Tab; retaining those keys makes movement stick.
         if matches!(event, WindowEvent::Focused(false)) {
             self.loading_screen.focus_lost();
+            self.shader_restore_capture = false;
             self.release_world_input_for_ui();
+        }
+        if self.renderer.as_ref().is_some_and(|ctx| ctx.blend_preparation_pending()) {
+            if matches!(event, WindowEvent::CloseRequested) {
+                self.shutdown(event_loop);
+            }
+            // Reconcile resize from the latest window size after compilation.
+            return;
         }
         if self.loading_screen.active()
             && matches!(&event, WindowEvent::KeyboardInput { .. }
@@ -1468,6 +1477,9 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Exit is deferred by winit. A failed front end still has a renderer,
+        // but no scene/player resources, so it must never tick gameplay.
+        if event_loop.exiting() { return; }
         // #4992 — every frame below assumes a booted world. When `resumed`
         // bails (Vulkan init failure, window / raw-handle failure, a bad
         // `--window-size`) it only *requests* the exit; winit still delivers
@@ -1488,6 +1500,10 @@ impl ApplicationHandler for App {
             .is_some_and(|request| request.0)
         {
             self.shutdown(event_loop);
+            return;
+        }
+        if self.step_front_end(event_loop) { return; }
+        if self.poll_blend_preparation(event_loop, !self.initial_blend_preparation_complete) {
             return;
         }
         if self.loading_screen.take_restore_capture() {
@@ -1718,17 +1734,7 @@ impl ApplicationHandler for App {
         // menu's canonical apply_action on the main thread.
         crate::inventory::drain_pending_inventory_actions(&mut self.world);
 
-        // Not while a transition/loading screen is remaking the scene —
-        // mid-life appearance imports would race the teardown. (A
-        // persistent-cell apply in flight is no longer a reason to pause:
-        // #5483 reseeded its stamp cursor per advance, so it can no
-        // longer claim appearance entities belonging to another cell.)
-        if self.interior_transition.is_none() && !self.loading_screen.active() {
-            if let Some(ctx) = self.renderer.as_mut() {
-                self.loot_appearance_loader.step(&mut self.world, ctx, &mut self.appearance_providers);
-                self.gear_import_loader.step(&mut self.world, ctx, &mut self.appearance_providers);
-            }
-        }
+        self.step_appearance_imports();
 
         // Update window title with stats (throttled: every 16 frames ≈ 4×/sec at 60fps).
         let config_debug = self.world.resource::<EngineConfig>().debug_logging;
@@ -1756,6 +1762,9 @@ impl ApplicationHandler for App {
         // loop; MAILBOX present mode still vsyncs the actual
         // presentation but `between_frames` drops to the
         // GPU+CPU-bound minimum.
+        if self.poll_blend_preparation(event_loop, true) {
+            return;
+        }
         let capture_in_flight = self.advance_frame_sequence_capture();
         if self.window.is_some() && self.renderer.is_some() {
             self.render_one_frame(event_loop);
@@ -2266,6 +2275,20 @@ mod screenshot_timing_tests {
 /// both docs wrong again without any compile error, so pin the order.
 #[cfg(test)]
 mod atw_bracket_nesting_tests {
+    #[test]
+    fn deferred_exit_skips_window_dispatch_and_gameplay() {
+        let production =
+            byroredux_core::source_scan::production_text(include_str!("app_events.rs"));
+        for (callback, work) in [
+            ("fn window_event(", "self.front_end_window_event("),
+            ("fn about_to_wait(", "self.step_front_end("),
+        ] {
+            let body = &production[production.find(callback).unwrap()..];
+            let body = &body[..body.find("\n    }\n").unwrap()];
+            assert!(body.find("if event_loop.exiting() { return; }").unwrap() < body.find(work).unwrap());
+        }
+    }
+
     #[test]
     fn atw_brackets_are_siblings_and_atw_post_contains_render_one_frame() {
         let production =

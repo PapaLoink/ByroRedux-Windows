@@ -381,6 +381,9 @@ fn normalized_serialized_shapes() -> Vec<String> {
                     .map_or(source.len(), |i| offset + i + 1)
             };
             let relative = path.strip_prefix(manifest).unwrap_or(&path);
+            // File names are part of this source guard's fingerprint, not the
+            // saved schema. Use the same spelling on Windows and Unix.
+            let relative = relative.to_string_lossy().replace('\\', "/");
             let normalized: String = source[offset..end]
                 .lines()
                 .map(|line| line.split("//").next().unwrap_or(""))
@@ -388,7 +391,7 @@ fn normalized_serialized_shapes() -> Vec<String> {
                 .chars()
                 .filter(|c| !c.is_whitespace())
                 .collect();
-            shapes.push(format!("{}:{normalized}", relative.display()));
+            shapes.push(format!("{relative}:{normalized}"));
         }
     }
     shapes.sort();

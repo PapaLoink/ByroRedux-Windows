@@ -1217,6 +1217,8 @@ pub struct VulkanContext {
     /// tiny bounded domain, so there is nothing for SipHash's HashDoS
     /// resistance to protect.
     blend_pipeline_cache: FxHashMap<(u8, u8, bool, bool), vk::Pipeline>,
+    /// Pending driver compilation; joined before shared Vulkan inputs are destroyed.
+    blend_preparation: Option<blend_preparation::BlendPreparation>,
     pipeline_layout: vk::PipelineLayout,
     /// Mesh handle for the unit XY quad used by the CPU particle billboard
     /// path (#401). Emitter entities push one DrawCommand per live particle
@@ -1392,6 +1394,7 @@ impl VulkanContext {
     /// Keys are (authored src, authored dst, wireframe, preserve opaque G-buffer).
     /// Failure propagates to the loading caller rather than substituting opaque.
     pub fn prepare_blend_pipelines(&mut self, keys: &[(u8, u8, bool, bool)]) -> Result<()> {
+        self.finish_blend_preparation()?;
         for &(src, dst, wireframe, preserve_opaque_gbuffer) in keys {
             self.get_or_create_blend_pipeline(src, dst, wireframe, preserve_opaque_gbuffer)?;
         }
@@ -1603,6 +1606,7 @@ mod egui_pending_output_tests {
 }
 
 // Method implementations split across submodules:
+mod blend_preparation;
 mod draw;
 mod frame_params;
 pub use frame_params::{is_refractive_glass, is_refractive_material, FrameInputs, UnderwaterView};

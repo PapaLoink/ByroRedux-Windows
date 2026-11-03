@@ -28,7 +28,7 @@ New to the codebase? Read in this order:
 | **Rust** | stable (2021 edition) | `rustup toolchain install stable` |
 | **Vulkan driver** | 1.3 with `VK_KHR_ray_query` | Any RTX 20xx+ / RX 6000+ / Intel Arc GPU works |
 | **C++17 compiler** | GCC 10+ / Clang 14+ | For the `cxx` bridge (`crates/cxx-bridge`) |
-| **Linux** | — | Primary target. Windows/macOS untested. |
+| **Platform** | Linux or Windows/MSVC | Linux is upstream's primary target; see the [native Windows test baseline](engine/windows-tests.md). macOS untested. |
 
 ### Optional
 

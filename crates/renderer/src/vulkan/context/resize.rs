@@ -1530,6 +1530,7 @@ impl VulkanContext {
     /// later phases read the `self` state the earlier ones wrote — no locals
     /// cross a phase boundary, so the split is behaviour-identical.
     pub fn recreate_swapchain(&mut self, window_size: [u32; 2]) -> Result<()> {
+        self.finish_blend_preparation()?;
         self.recreate_swapchain_core(window_size)?;
         self.recreate_texture_ssao_bindings()?;
         self.recreate_screen_passes()?;

@@ -150,10 +150,11 @@ mod tests {
     #[test]
     fn profiles_parsing_is_strict() {
         // The one accepted spelling.
+        let profiles = std::env::temp_dir().join("alt.toml");
         assert_eq!(
-            parse_args(args(&["--profiles", "/tmp/alt.toml"])),
+            parse_args(args(&["--profiles", profiles.to_str().unwrap()])),
             Ok(Some(Options {
-                profiles: Some(PathBuf::from("/tmp/alt.toml")),
+                profiles: Some(profiles),
             }))
         );
         assert_eq!(parse_args(args(&[])), Ok(Some(Options::default())));

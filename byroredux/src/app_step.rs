@@ -19,6 +19,22 @@ use winit::event_loop::ActiveEventLoop;
 const BENCH_CUT_RECOVERY_FRAMES: u32 = SVGF_TAA_STREAMING_RECOVERY_FRAMES;
 
 impl App {
+    /// Apply streamed equipment before the host discovers required shaders.
+    /// Kept as one step so the event driver retains its existing size budget.
+    pub(crate) fn step_appearance_imports(&mut self) {
+        // Not while a transition/loading screen is remaking the scene —
+        // mid-life appearance imports would race the teardown. (A
+        // persistent-cell apply in flight is no longer a reason to pause:
+        // #5483 reseeded its stamp cursor per advance, so it can no
+        // longer claim appearance entities belonging to another cell.)
+        if self.interior_transition.is_none() && !self.loading_screen.active() {
+            if let Some(ctx) = self.renderer.as_mut() {
+                self.loot_appearance_loader.step(&mut self.world, ctx, &mut self.appearance_providers);
+                self.gear_import_loader.step(&mut self.world, ctx, &mut self.appearance_providers);
+            }
+        }
+    }
+
     /// Main-thread allowance for steady-state EXAL application. Work is
     /// cooperative and guarantees one atomic unit of progress, so an
     /// unusually expensive NIF/REFR may exceed this target once; the next

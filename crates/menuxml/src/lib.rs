@@ -42,3 +42,6 @@ pub use parse::{Document, Op, OpArg, OpKind, RawTrait, Scalar, Tile, TileKind};
 pub use profile::{FontArchive, MenuProfile};
 pub use raster::Framebuffer;
 pub use tex::{Rgba8, TexError};
+
+#[cfg(test)]
+mod input_tests;

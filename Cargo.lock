@@ -944,6 +944,7 @@ dependencies = [
  "flate2",
  "futures",
  "log",
+ "percent-encoding",
  "ruffle_core",
  "ruffle_render_wgpu",
  "ruffle_video_software",

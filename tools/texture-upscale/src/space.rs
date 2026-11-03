@@ -114,7 +114,14 @@ fn volume_for(path: &Path) -> Result<VolumeSpace> {
     let disk = disks
         .list()
         .iter()
-        .filter(|disk| ancestor.starts_with(disk.mount_point()))
+        // Windows canonicalize returns a verbatim prefix (\\?\C:\...),
+        // whereas sysinfo reports ordinary drive roots (C:\). Compare paths
+        // in the same canonical namespace, including mounted volumes.
+        .filter(|disk| {
+            disk.mount_point()
+                .canonicalize()
+                .is_ok_and(|mount| ancestor.starts_with(mount))
+        })
         .max_by_key(|disk| disk.mount_point().components().count())
         .with_context(|| format!("find filesystem containing {}", ancestor.display()))?;
     Ok(VolumeSpace {
@@ -204,5 +211,14 @@ mod tests {
     #[test]
     fn byte_formatter_uses_binary_units() {
         assert_eq!(human_bytes(3 * 1024 * 1024), "3.0 MiB");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn canonical_windows_temp_path_resolves_to_a_disk() {
+        let directory = tempfile::tempdir().unwrap();
+        let canonical = directory.path().canonicalize().unwrap();
+        let volume = volume_for(&canonical).unwrap();
+        assert!(canonical.starts_with(volume.mount_point.canonicalize().unwrap()));
     }
 }

@@ -253,6 +253,9 @@ impl VulkanContext {
 
 impl Drop for VulkanContext {
     fn drop(&mut self) {
+        if let Err(error) = self.finish_blend_preparation() {
+            log::error!("Blend preparation at shutdown: {error:#}");
+        }
         // SAFETY: device_wait_idle ensures all GPU work is complete before
         // destroying resources. Destruction does NOT follow reverse-creation
         // order (see `destroy_allocator_owned_resources`'s doc, corrected

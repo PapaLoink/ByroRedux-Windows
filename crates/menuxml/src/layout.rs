@@ -93,9 +93,19 @@ impl DrawItem {
     }
 }
 
+/// An authored interactive tile in the same coordinate system as the raster.
+#[derive(Debug, Clone)]
+pub struct HitTarget { pub tile: usize, pub id: i32, pub name: String, pub rect: Rect }
+
 /// Build the depth-ordered draw list for a document.
 pub fn build_draw_list(doc: &Document, eval: &mut EvalState) -> Vec<DrawItem> {
+    build_layout(doc, eval).0
+}
+
+pub fn build_layout(doc: &Document, eval: &mut EvalState) -> (Vec<DrawItem>, Vec<HitTarget>) {
     let mut out = Vec::new();
+    let mut targets = Vec::new();
+    if !eval.trait_value(0, "visible").truthy() { return (out, targets); }
     // Root position: the menu's own x/y (usually 0,0).
     let root_x = num(eval, 0, "x");
     let root_y = num(eval, 0, "y");
@@ -105,8 +115,8 @@ pub fn build_draw_list(doc: &Document, eval: &mut EvalState) -> Vec<DrawItem> {
         w: num(eval, 0, "width").max(0.0),
         h: num(eval, 0, "height").max(0.0),
     };
-    walk_children(doc, eval, 0, (root_x, root_y), None, &mut out, root_rect);
-    out
+    walk_children(doc, eval, 0, (root_x, root_y), None, &mut out, &mut targets, root_rect);
+    (out, targets)
 }
 
 /// Walk one tile's children, sorting by depth (stable — document order
@@ -120,6 +130,7 @@ fn walk_children(
     origin: (f32, f32),
     clip: Option<Rect>,
     out: &mut Vec<DrawItem>,
+    targets: &mut Vec<HitTarget>,
     parent_rect: Rect,
 ) {
     // Depth is read for every child first so the sort does not interleave
@@ -167,6 +178,15 @@ fn walk_children(
             };
         }
 
+        if visible && eval.trait_value(child, "target").truthy() {
+            if let Some(id) = doc.tiles[child].id {
+                let hit_rect = child_clip.map_or(Some(rect), |clip| intersect(clip, rect));
+                if let Some(rect) = hit_rect.filter(|r| r.w > 0.0 && r.h > 0.0) {
+                    targets.push(HitTarget { tile: child, id,
+                        name: doc.tiles[child].name.clone().unwrap_or_default(), rect });
+                }
+            }
+        }
         if visible && alpha > 0.5 {
             let tint = [
                 num(eval, child, "red"),
@@ -241,7 +261,9 @@ fn walk_children(
             }
         }
 
-        walk_children(doc, eval, child, child_origin, child_clip, out, rect);
+        if visible {
+            walk_children(doc, eval, child, child_origin, child_clip, out, targets, rect);
+        }
         let _ = parent_rect;
     }
 }

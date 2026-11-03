@@ -158,6 +158,7 @@ pub struct AudioWorld {
     /// Currently-playing one-shot sounds. Cleaned up per-frame as
     /// kira reports `PlaybackState::Stopped`.
     pub(crate) active_sounds: Vec<ActiveSound>,
+    pub(crate) presentation: Option<StaticSoundHandle>,
     /// Queued fire-and-forget one-shots from [`Self::play_oneshot`].
     /// Drained at the start of each `audio_system` tick so callers
     /// who can't allocate entities (Systems) can still trigger
@@ -292,6 +293,7 @@ impl AudioWorld {
             active_sounds: Vec::new(),
             pending_oneshots: VecDeque::new(),
             oneshots_requested: 0,
+            presentation: None,
             music: None,
             script_music: None,
             reverb_send: None,

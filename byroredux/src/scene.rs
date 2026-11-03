@@ -231,7 +231,8 @@ pub(crate) fn setup_scene(
     streaming_slot: &mut Option<WorldStreamingState>,
 ) {
     // Load content from CLI: cell, loose NIF, or BSA NIF.
-    let args: Vec<String> = crate::cli_args::effective_args();
+    let args: Vec<String> = world.remove_resource::<crate::front_end::SceneStartArgs>()
+        .map(|args| args.0).unwrap_or_else(crate::cli_args::effective_args);
     let content = load_scene_content(world, ctx, streaming_slot, &args);
     start_cli_animation(world, ctx, &args, content.nif_root);
     spawn_demo_primitives(world, ctx, content.has_nif_content);

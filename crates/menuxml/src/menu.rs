@@ -381,6 +381,12 @@ impl MenuRenderer {
         self.screen = screen;
     }
 
+    /// Evaluate authored interactive rectangles through the raster's layout walk.
+    pub fn hit_targets(&self) -> Vec<crate::layout::HitTarget> {
+        let mut eval = EvalState::new(&self.doc, self.screen, &self.strings, &self.overrides).with_fonts(&self.fonts);
+        crate::layout::build_layout(&self.doc, &mut eval).1
+    }
+
     /// The last `render_frame` raster, without re-evaluating — for callers
     /// that need the pixels after the `&mut self` render call has returned
     /// (#4608's HUD handoff).
@@ -391,7 +397,7 @@ impl MenuRenderer {
     /// Evaluate, lay out, and rasterize one frame. Returns the RGBA
     /// pixels (`width * height * 4`, top-down).
     pub fn render_frame(&mut self, assets: &dyn MenuAssets) -> &[u8] {
-        let mut eval = EvalState::new(&self.doc, self.screen, &self.strings, &self.overrides);
+        let mut eval = EvalState::new(&self.doc, self.screen, &self.strings, &self.overrides).with_fonts(&self.fonts);
         eval.resolve_all();
         let items = build_draw_list(&self.doc, &mut eval);
         log::debug!(
