@@ -752,4 +752,3 @@ fn oblivion_cobwebs_and_fx_sheets_synthesize_no_collider() {
     }
     assert!(checked >= census.len(), "only {checked} meshes imported from {} census NIFs", census.len());
 }
-

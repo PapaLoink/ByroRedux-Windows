@@ -544,4 +544,3 @@ mod tests {
         assert!(register_clips(&mut world, &graph, &rig(), "p", &|name| name.to_owned(), &mut |_| Ok(animation())).is_none());
     }
 }
-
