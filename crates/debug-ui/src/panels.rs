@@ -390,6 +390,26 @@ fn draw_objective_lines(ctx: &Context, objectives: &[ObjectiveView]) {
         });
 }
 
+/// A cutscene over everything: black bars around the picture, scaled to fit
+/// the window at its own aspect ratio. No picture yet draws black alone.
+pub fn draw_video(ctx: &Context, frame: Option<&egui::TextureHandle>) {
+    let viewport = ctx.content_rect();
+    egui::Area::new(Id::new("cutscene"))
+        .order(Order::Foreground)
+        .fixed_pos(viewport.min)
+        .interactable(false)
+        .show(ctx, |ui| {
+            let painter = ui.painter();
+            painter.rect_filled(viewport, 0.0, Color32::BLACK);
+            let Some(texture) = frame else { return };
+            let [w, h] = texture.size().map(|side| side as f32);
+            let scale = (viewport.width() / w).min(viewport.height() / h);
+            let rect = egui::Rect::from_center_size(viewport.center(), egui::vec2(w, h) * scale);
+            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+            painter.image(texture.id(), rect, uv, Color32::WHITE);
+        });
+}
+
 pub fn draw_loading_tip(ctx: &Context, tip: &str) {
     // No Area fade or first-frame sizing pass: even a one-frame loading
     // presentation must show the tip at full opacity.
@@ -462,12 +482,17 @@ pub struct PanelOutputs {
     pub quickload: bool,
     /// Perform the same orderly shutdown as the window close button.
     pub quit_game: bool,
+    /// The main menu's New Game: leave the menu and begin the game's opening.
+    pub new_game: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GameMenuPage {
     #[default]
     Pause,
+    /// The title screen the game boots into (`--main-menu`). Escape does not
+    /// close it; only New Game or Continue leave it.
+    MainMenu,
     Settings,
     Inventory,
     Dialogue,
@@ -484,6 +509,34 @@ pub struct GameMenuState {
     pub selected_section: String,
     pub selected_inventory_category: String,
     pub selected_inventory_index: Option<u32>,
+    /// The game's name, shown on the main menu.
+    pub main_menu_title: String,
+    /// Settings was opened from the main menu, so Back returns there.
+    pub settings_from_main_menu: bool,
+    /// The host draws the main menu itself (the game's own title screen);
+    /// this page then draws nothing, but keeps the menu's pause, input
+    /// capture and Escape rules.
+    pub main_menu_native: bool,
+}
+
+impl GameMenuState {
+    /// Escape: open on the pause page, or close. The main menu has nothing
+    /// behind it to return to, so Escape stays on it, and from its Settings
+    /// page goes back to it. Returns whether the menu is now visible.
+    pub fn toggle(&mut self) -> bool {
+        if self.visible && self.page == GameMenuPage::MainMenu {
+            return true;
+        }
+        if self.visible && std::mem::take(&mut self.settings_from_main_menu) {
+            self.page = GameMenuPage::MainMenu;
+            return true;
+        }
+        self.visible = !self.visible;
+        if self.visible {
+            self.page = GameMenuPage::Pause;
+        }
+        self.visible
+    }
 }
 
 /// Player-facing pause/settings surface. This deliberately consumes the same
@@ -495,6 +548,9 @@ pub fn draw_game_menu(
     state: &mut GameMenuState,
     outputs: &mut PanelOutputs,
 ) {
+    if state.page == GameMenuPage::MainMenu && state.main_menu_native {
+        return;
+    }
     let viewport = ctx.content_rect();
     egui::Area::new(Id::new("game_menu_backdrop"))
         .order(Order::Foreground)
@@ -510,6 +566,7 @@ pub fn draw_game_menu(
 
     let title = match state.page {
         GameMenuPage::Pause => "Paused",
+        GameMenuPage::MainMenu => "Main Menu",
         GameMenuPage::Settings => "Settings",
         GameMenuPage::Inventory => "Inventory",
         GameMenuPage::Dialogue => "Conversation",
@@ -526,6 +583,7 @@ pub fn draw_game_menu(
         .resizable(false)
         .fixed_size(match state.page {
             GameMenuPage::Pause => egui::vec2(360.0, 390.0),
+            GameMenuPage::MainMenu => egui::vec2(420.0, 400.0),
             GameMenuPage::Settings => egui::vec2(760.0, 620.0),
             GameMenuPage::Inventory => egui::vec2(900.0, 620.0),
             GameMenuPage::Dialogue => egui::vec2(760.0, 560.0),
@@ -542,6 +600,7 @@ pub fn draw_game_menu(
         )
         .show(ctx, |ui| match state.page {
             GameMenuPage::Pause => draw_pause_page(ui, state, outputs),
+            GameMenuPage::MainMenu => draw_main_menu_page(ui, state, outputs),
             GameMenuPage::Settings => draw_game_settings(ui, &snapshot.settings, state, outputs),
             GameMenuPage::Inventory => {
                 draw_inventory_page(ui, snapshot.inventory.as_ref(), state, outputs)
@@ -882,6 +941,44 @@ fn draw_pause_page(ui: &mut egui::Ui, state: &mut GameMenuState, outputs: &mut P
     });
 }
 
+/// The title screen: New Game begins the opening, Continue loads the most
+/// recent save, Settings is the pause menu's settings page.
+fn draw_main_menu_page(ui: &mut egui::Ui, state: &mut GameMenuState, outputs: &mut PanelOutputs) {
+    ui.vertical_centered(|ui| {
+        ui.add_space(12.0);
+        ui.label(
+            RichText::new("BYROREDUX")
+                .size(13.0)
+                .strong()
+                .color(Color32::from_rgb(145, 175, 210)),
+        );
+        let title = if state.main_menu_title.is_empty() {
+            "Main Menu"
+        } else {
+            state.main_menu_title.as_str()
+        };
+        ui.heading(RichText::new(title).size(34.0));
+        ui.add_space(28.0);
+        if wide_button(ui, "New Game").clicked() {
+            outputs.new_game = true;
+        }
+        ui.add_space(8.0);
+        if wide_button(ui, "Continue").clicked() {
+            outputs.quickload = true;
+            outputs.resume_game = true;
+        }
+        ui.add_space(8.0);
+        if wide_button(ui, "Settings").clicked() {
+            state.settings_from_main_menu = true;
+            state.page = GameMenuPage::Settings;
+        }
+        ui.add_space(8.0);
+        if wide_button(ui, "Quit to desktop").clicked() {
+            outputs.quit_game = true;
+        }
+    });
+}
+
 fn wide_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     ui.add_sized(
         [280.0, 42.0],
@@ -897,7 +994,11 @@ fn draw_game_settings(
 ) {
     ui.horizontal(|ui| {
         if ui.button("← Back").clicked() {
-            state.page = GameMenuPage::Pause;
+            state.page = if std::mem::take(&mut state.settings_from_main_menu) {
+                GameMenuPage::MainMenu
+            } else {
+                GameMenuPage::Pause
+            };
         }
         ui.heading("Settings");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -2095,6 +2196,59 @@ mod tests {
         let mut output = ctx.end_pass();
         output.textures_delta.clear();
         output
+    }
+
+    fn main_menu() -> GameMenuState {
+        GameMenuState {
+            visible: true,
+            page: GameMenuPage::MainMenu,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn escape_does_not_leave_the_main_menu() {
+        let mut state = main_menu();
+        assert!(state.toggle());
+        assert_eq!(state.page, GameMenuPage::MainMenu);
+    }
+
+    #[test]
+    fn escape_from_main_menu_settings_returns_to_the_main_menu() {
+        let mut state = main_menu();
+        state.settings_from_main_menu = true;
+        state.page = GameMenuPage::Settings;
+        assert!(state.toggle());
+        assert_eq!(state.page, GameMenuPage::MainMenu);
+        assert!(!state.settings_from_main_menu);
+    }
+
+    #[test]
+    fn escape_still_opens_and_closes_the_pause_menu() {
+        let mut state = GameMenuState::default();
+        assert!(state.toggle());
+        assert_eq!(state.page, GameMenuPage::Pause);
+        assert!(!state.toggle());
+    }
+
+    #[test]
+    fn main_menu_draws_with_its_title() {
+        let ctx = Context::default();
+        ctx.begin_pass(egui::RawInput::default());
+        let mut state = main_menu();
+        state.main_menu_title = "An original game".into();
+        let mut outputs = PanelOutputs::default();
+        draw_game_menu(&ctx, &PanelSnapshot::default(), &mut state, &mut outputs);
+        assert!(!end_pass(&ctx).shapes.is_empty());
+        assert!(!outputs.new_game, "drawing alone must not start a game");
+    }
+
+    #[test]
+    fn a_cutscene_waiting_for_its_first_frame_draws_black() {
+        let ctx = Context::default();
+        ctx.begin_pass(egui::RawInput::default());
+        draw_video(&ctx, None);
+        assert!(!end_pass(&ctx).shapes.is_empty());
     }
 
     #[test]

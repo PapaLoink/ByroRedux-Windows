@@ -33,10 +33,12 @@ pub struct MenuProfile {
     /// atlas name (Oblivion: `fonts\<name>.tex`; FO3 ships both a
     /// `.tex` and a `.dds` beside each `.fnt`).
     pub font_atlas: fn(&str) -> Vec<String>,
-    /// The game's strings document feeding the `strings()` selector,
-    /// if it has one. Oblivion: `menus\strings.xml`. FO3/FNV have no
-    /// equivalent (their `-sPrefixed` strings are GMST refs, future
-    /// work) — `None` reads `strings()` as 0.
+    /// The game's menu-wide trait sheet feeding the `strings()` /
+    /// `globals()` selector, if it has one. Oblivion: `menus\strings.xml`
+    /// (`strings()`); FO3/FNV: `menus\globals.xml` (`globals()` — line
+    /// thickness, brightness and fill constants the prefabs share; their
+    /// `-sPrefixed` text is GMST refs, a separate matter). `None` reads
+    /// the selector as 0.
     pub strings_path: Option<&'static str>,
 }
 
@@ -86,7 +88,7 @@ impl MenuProfile {
             font_paths,
             font_archive: FontArchive::Textures,
             font_atlas: fallout_atlas,
-            strings_path: None,
+            strings_path: Some("menus\\globals.xml"),
         }
     }
 }

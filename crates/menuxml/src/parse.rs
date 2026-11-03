@@ -165,7 +165,9 @@ impl TileKind {
     fn from_element(name: &str) -> Option<Self> {
         Some(match name {
             "menu" => Self::Menu,
-            "rect" | "window" => Self::Rect,
+            // FO3/FNV `hotrect`: a rect that takes the mouse (its `target`
+            // trait says when). Laid out and drawn exactly like a rect.
+            "rect" | "window" | "hotrect" => Self::Rect,
             "image" => Self::Image,
             "text" => Self::Text,
             "nif" | "3d" => Self::Nif,

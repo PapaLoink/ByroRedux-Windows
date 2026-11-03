@@ -1241,6 +1241,24 @@ impl EsmIndex {
         })
     }
 
+    /// A string GMST's value by EditorID (`sContinue` → "Continue"), resolved
+    /// through the same load-order side-table as [`Self::game_setting_float`].
+    pub fn game_setting_string(&self, editor_id: &str) -> Option<&str> {
+        let setting = self
+            .game_settings_by_edid
+            .get(&editor_id.to_ascii_lowercase())
+            .and_then(|form_id| self.game_settings.get(form_id))
+            .or_else(|| {
+                self.game_settings
+                    .values()
+                    .find(|setting| setting.editor_id.eq_ignore_ascii_case(editor_id))
+            })?;
+        match &setting.value {
+            super::SettingValue::String(value) => Some(value),
+            _ => None,
+        }
+    }
+
     /// Insert a GMST, maintaining the load-order EditorID side-table
     /// (#6350). This is the only parse-path insert: a later record with
     /// the same EditorID — same FormID (override) or its own — takes the

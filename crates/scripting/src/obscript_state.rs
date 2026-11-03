@@ -397,6 +397,35 @@ pub fn game_setting(world: &World, name: &str) -> Option<f32> {
     world.try_resource::<GameSettings>()?.0.get(&name.to_ascii_lowercase()).copied()
 }
 
+/// The load order's string game settings by editor ID (lowercased) — the
+/// interface's text (`sContinue`, `sQuit`, ...), which the menus read by
+/// name. `NOT_SAVED_BY_DESIGN`: rebuilt from the records.
+#[derive(Debug, Default, Clone)]
+pub struct GameSettingStrings(std::collections::HashMap<String, String>);
+
+impl Resource for GameSettingStrings {}
+
+impl GameSettingStrings {
+    pub fn from_index(index: &byroredux_plugin::esm::records::EsmIndex) -> Self {
+        Self(
+            index
+                .game_settings
+                .values()
+                .filter_map(|setting| {
+                    index
+                        .game_setting_string(&setting.editor_id)
+                        .map(|value| (setting.editor_id.to_ascii_lowercase(), value.to_owned()))
+                })
+                .collect(),
+        )
+    }
+}
+
+/// A string game setting's value by editor ID (case-insensitive).
+pub fn game_setting_string(world: &World, name: &str) -> Option<String> {
+    world.try_resource::<GameSettingStrings>()?.0.get(&name.to_ascii_lowercase()).cloned()
+}
+
 /// `ShowWarning "text"`: "display/write a warning ... a message box on the screen" (GECK): shown as a
 /// message, written to the log by the caller.
 pub fn show_warning(world: &World, text: &str) {

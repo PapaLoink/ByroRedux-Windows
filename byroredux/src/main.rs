@@ -26,6 +26,7 @@ mod combat;
 mod commands;
 mod crime;
 mod components;
+mod cutscene;
 mod cornell;
 mod debug_load;
 mod encumbrance;
@@ -63,6 +64,7 @@ mod scene_import_cache;
 mod scheduler_access_tests;
 mod scaleform_hud;
 mod settings_io;
+mod start_menu;
 mod sf_smoke;
 mod streaming;
 mod streaming_helpers;
@@ -849,6 +851,14 @@ struct App {
     /// has nothing to do (#6125). Session state.
     created_step_key: Option<u64>,
     loading_screen: loading_screen::LoadingScreen,
+    /// The full-screen movie playing, if any (New Game's opening).
+    cutscene: Option<cutscene::Cutscene>,
+    /// The game's own title screen (`--main-menu` on the FO3/FNV corpus),
+    /// while it is up.
+    start_menu: Option<start_menu::StartMenu>,
+    /// The pointer's last position as fractions of the window, for the
+    /// title screen's clicks (a click event carries no position).
+    start_menu_pointer: (f32, f32),
     loot_appearance_loader: npc_spawn::loot_appearance::LootAppearanceLoader,
     gear_import_loader: npc_spawn::loot_appearance::GearImportLoader,
     /// One archive-provider set shared by both appearance loaders (#5061) —
@@ -1359,6 +1369,9 @@ impl App {
             interior_transition: None,
             created_step_key: None,
             loading_screen: loading_screen::LoadingScreen::default(),
+            cutscene: None,
+            start_menu: None,
+            start_menu_pointer: (0.0, 0.0),
             loot_appearance_loader: Default::default(),
             gear_import_loader: Default::default(),
             appearance_providers: Default::default(),
@@ -1578,6 +1591,139 @@ impl App {
         }
         self.capture_world_input();
     }
+
+    /// The main menu's New Game: the menu closes, the player is moved to the
+    /// game's start (`--new-game-start <REFR form id>`, the reference the
+    /// opening quest expects them at), and the opening movie
+    /// (`--intro-video`) plays over it, the world paused, until it ends or is
+    /// skipped.
+    fn begin_new_game(&mut self) {
+        self.resume_from_game_menu();
+        let args = cli_args::effective_args();
+        if let Some(start) = cli_args::parse_string_arg(&args, "--new-game-start") {
+            match u32::from_str_radix(start.trim_start_matches("0x"), 16) {
+                Ok(form) => {
+                    // The launch named its cell, which pins the player at the
+                    // cell's entry point; a new game starts where it says.
+                    crate::components::ExplicitStartPin::release(&self.world);
+                    if let Some(mut request) =
+                        self.world.try_resource_mut::<byroredux_scripting::PlayerMoveRequest>()
+                    {
+                        request.0 = Some(form);
+                    }
+                }
+                Err(_) => log::warn!("--new-game-start {start}: not a hex form id"),
+            }
+        }
+        let Some(path) = cutscene::intro_video_path(&args) else {
+            return;
+        };
+        if let Some(movie) = cutscene::Cutscene::start(path) {
+            if let Some(ui) = self.debug_ui.as_mut() {
+                ui.begin_video();
+            }
+            self.cutscene = Some(movie);
+        }
+    }
+
+    /// The game's title screen takes the pointer and the keys while it is
+    /// up; a chosen option is carried out here.
+    fn route_start_menu_event(
+        &mut self,
+        event: &winit::event::WindowEvent,
+        pressed_key: Option<winit::keyboard::KeyCode>,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+    ) {
+        use winit::event::{ElementState, MouseButton, WindowEvent};
+        let fraction = |window: &winit::window::Window, x: f64, y: f64| {
+            let size = window.inner_size();
+            (x as f32 / size.width.max(1) as f32, y as f32 / size.height.max(1) as f32)
+        };
+        let (Some(menu), Some(window)) = (self.start_menu.as_mut(), self.window.as_ref()) else {
+            return;
+        };
+        let action = match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                let (x, y) = fraction(window, position.x, position.y);
+                self.start_menu_pointer = (x, y);
+                menu.pointer_moved(x, y);
+                None
+            }
+            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
+                let (x, y) = self.start_menu_pointer;
+                menu.click(x, y)
+            }
+            _ => pressed_key.and_then(|key| menu.key(key)),
+        };
+        if let Some(action) = action {
+            self.start_menu_chose(action, event_loop);
+        }
+    }
+
+    /// Carry out a title-screen option.
+    fn start_menu_chose(
+        &mut self,
+        action: start_menu::StartMenuAction,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+    ) {
+        use start_menu::StartMenuAction;
+        log::info!("start menu: {action:?}");
+        match action {
+            StartMenuAction::NewGame => {
+                self.start_menu = None;
+                self.begin_new_game();
+            }
+            // Continue loads the most recent save; Load has no save list yet
+            // and does the same.
+            StartMenuAction::Continue | StartMenuAction::Load => {
+                match save_io::queue_player_save_action(&self.world, save_io::PlayerSaveAction::Quickload) {
+                    Ok(()) => {
+                        self.start_menu = None;
+                        self.resume_from_game_menu();
+                    }
+                    Err(error) => surface_save_load_output(
+                        self.debug_ui.as_mut(),
+                        "start menu",
+                        byroredux_core::console::CommandOutput::error(error),
+                    ),
+                }
+            }
+            StartMenuAction::Settings => {
+                if let Some(ui) = self.debug_ui.as_mut() {
+                    ui.open_settings_from_main_menu();
+                }
+            }
+            StartMenuAction::Credits | StartMenuAction::Downloads => {}
+            StartMenuAction::Quit => self.shutdown(event_loop),
+        }
+    }
+
+    /// Show the cutscene's due frame; tear it down when it ends.
+    fn step_cutscene(&mut self) {
+        let Some(movie) = self.cutscene.as_mut() else { return };
+        match movie.tick(&self.world) {
+            cutscene::Tick::Frame(Some(frame)) => {
+                let size = movie.size();
+                if let Some(ui) = self.debug_ui.as_mut() {
+                    ui.set_video_frame(size, &frame);
+                }
+            }
+            cutscene::Tick::Frame(None) => {}
+            cutscene::Tick::Finished => self.end_cutscene(),
+        }
+    }
+
+    /// Skip or finish the cutscene: decoders stopped, input back to the world.
+    fn end_cutscene(&mut self) {
+        if let Some(movie) = self.cutscene.take() {
+            movie.stop(&self.world);
+            log::info!("cutscene: ended");
+        }
+        if let Some(ui) = self.debug_ui.as_mut() {
+            ui.end_video();
+        }
+        self.capture_world_input();
+    }
 }
 
 // Tear down the active exterior streaming state: drain every loaded
@@ -1736,8 +1882,9 @@ fn apply_debug_ui_outputs(
     outputs: byroredux_debug_ui::PanelOutputs,
     refresh_entities_flag: &mut bool,
     debug_ui: Option<&mut byroredux_debug_ui::DebugUiState>,
-) -> (bool, bool) {
+) -> (bool, bool, bool) {
     let mut debug_ui = debug_ui;
+    let new_game = outputs.new_game;
     // M47.2 — the answered message box leaves the queue; the page stays up
     // for the next one, and the last answer closes it back to the world.
     let resume_game = outputs.resume_game
@@ -1877,7 +2024,7 @@ fn apply_debug_ui_outputs(
         settings_io::save(&settings, &persistence);
     }
     if outputs.console_evals.is_empty() {
-        return (resume_game, quit_game);
+        return (resume_game, quit_game, new_game);
     }
     // Collect responses first, then push into the overlay's
     // scrollback. Splitting the two phases keeps the `&World`
@@ -1898,7 +2045,7 @@ fn apply_debug_ui_outputs(
             ui.push_console_line(line);
         }
     }
-    (resume_game, quit_game)
+    (resume_game, quit_game, new_game)
 }
 
 fn apply_camera_setting(world: &World, change: &SettingChange) {

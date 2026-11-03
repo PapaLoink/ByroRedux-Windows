@@ -288,6 +288,7 @@ pub fn install_actor_value_names(world: &mut World, index: &EsmIndex) -> usize {
     world.insert_resource(crate::idle_names::IdleNames::from_index(index));
     world.insert_resource(crate::obscript_state::ItemTypeCodes::from_index(index));
     world.insert_resource(crate::obscript_state::GameSettings::from_index(index));
+    world.insert_resource(crate::obscript_state::GameSettingStrings::from_index(index));
     world.insert_resource(crate::obscript_state::WeaponAnimTypes::from_index(index));
     world.insert_resource(crate::challenges::ChallengeDefs::from_index(index));
     world.insert_resource(crate::obscript_more::MusicTracks::from_index(index));

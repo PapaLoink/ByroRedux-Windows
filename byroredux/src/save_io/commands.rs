@@ -463,6 +463,14 @@ pub(crate) fn command_output_is_failure(output: &CommandOutput) -> bool {
 }
 
 /// Queue the newest on-disk slot, matching conventional quickload behavior.
+/// Whether any save slot is on disk — the title screen lists Continue and
+/// Load only then, as the original does.
+pub(crate) fn has_saves(world: &World) -> bool {
+    world
+        .try_resource::<SaveState>()
+        .is_some_and(|state| !disk::slots_by_recency(&state.dir).is_empty())
+}
+
 pub(crate) fn quickload_latest(world: &World) -> CommandOutput {
     let slots = world
         .try_resource::<SaveState>()

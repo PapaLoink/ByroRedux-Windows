@@ -241,7 +241,12 @@ fn walk_children(
             }
         }
 
-        walk_children(doc, eval, child, child_origin, child_clip, out, rect);
+        // A hidden tile hides its whole subtree (Gamebryo): FO3/FNV's list
+        // boxes hide their scrollbar, whose arrow images carry no
+        // `visible` of their own.
+        if visible {
+            walk_children(doc, eval, child, child_origin, child_clip, out, rect);
+        }
         let _ = parent_rect;
     }
 }

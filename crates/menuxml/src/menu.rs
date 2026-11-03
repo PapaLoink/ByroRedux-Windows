@@ -131,6 +131,9 @@ pub struct MenuRenderer {
     /// Filenames already logged as missing (once each). Also dedupes the
     /// #5670 substitution notices, under a `substituted:`-prefixed key.
     missing: HashSet<String>,
+    /// Image tiles whose `filewidth`/`fileheight` the driver set itself, so
+    /// [`Self::fill_file_dims`] leaves them alone.
+    driver_dims: HashSet<String>,
     frame: Framebuffer,
     texture_set: TextureSet,
     /// nif tiles encountered (diagnostic, logged once at load).
@@ -179,17 +182,21 @@ impl MenuRenderer {
                 String::from_utf8(b).ok().map(|s| {
                     let mut src = AssetsAsFileSource { assets };
                     let doc = parse_document(&s, &mut src);
-                    let mut map = HashMap::new();
                     // A strings document is a flat `<rect name="Strings">`
-                    // of `_name` text traits.
-                    for (k, v) in &doc.tiles[0].traits {
-                        if let crate::parse::RawTrait::Str(s) = v {
-                            map.insert(k.clone(), Scalar::Str(s.clone()));
-                        } else if let crate::parse::RawTrait::Num(n) = v {
-                            map.insert(k.clone(), Scalar::Num(*n));
-                        }
-                    }
-                    map
+                    // of `_name` traits. Oblivion's are literals; FO3/FNV's
+                    // `globals.xml` computes some (`_line_thickness` reads
+                    // `screen()`), so each is evaluated once, here.
+                    let empty = HashMap::new();
+                    let no_overrides = Overrides::new();
+                    let mut eval = EvalState::new(&doc, screen, &empty, &no_overrides);
+                    let names: Vec<String> = doc.tiles[0].traits.keys().cloned().collect();
+                    names
+                        .into_iter()
+                        .map(|name| {
+                            let value = eval.trait_value(0, &name);
+                            (name, value)
+                        })
+                        .collect::<HashMap<_, _>>()
                 })
             })
         });
@@ -257,6 +264,7 @@ impl MenuRenderer {
             budget_warned: false,
             refused_paths: HashSet::new(),
             missing: HashSet::new(),
+            driver_dims: HashSet::new(),
             frame: Framebuffer::new(screen.width as u32, screen.height as u32),
             texture_set,
             nif_tiles,
@@ -273,8 +281,11 @@ impl MenuRenderer {
     /// * the menu root (`HUDMainMenu`) — `user3` = 1 explore / 0 menu
     ///   mode.
     pub fn set_override(&mut self, tile: &str, trait_name: &str, value: f32) {
-        self.overrides
-            .insert((tile.to_lowercase(), trait_name.to_lowercase()), Scalar::Num(value));
+        let trait_name = trait_name.to_lowercase();
+        if trait_name == "filewidth" || trait_name == "fileheight" {
+            self.driver_dims.insert(tile.to_lowercase());
+        }
+        self.overrides.insert((tile.to_lowercase(), trait_name), Scalar::Num(value));
     }
 
     pub fn set_override_str(&mut self, tile: &str, trait_name: &str, value: &str) {
@@ -391,6 +402,7 @@ impl MenuRenderer {
     /// Evaluate, lay out, and rasterize one frame. Returns the RGBA
     /// pixels (`width * height * 4`, top-down).
     pub fn render_frame(&mut self, assets: &dyn MenuAssets) -> &[u8] {
+        self.fill_file_dims(assets);
         let mut eval = EvalState::new(&self.doc, self.screen, &self.strings, &self.overrides);
         eval.resolve_all();
         let items = build_draw_list(&self.doc, &mut eval);
@@ -454,6 +466,62 @@ impl MenuRenderer {
         &self.frame.pixels
     }
 
+    /// `filewidth` / `fileheight`: the size an image tile's texture is drawn
+    /// at — its pixel size scaled by the tile's `zoom` percent — which the
+    /// game's code set on every image (FO3/FNV size their logos and icons
+    /// by it: `<width> <copy src="me()" trait="filewidth"/>`, and
+    /// `StartMenu`'s logo zooms to 133 % on a widescreen). Refilled each
+    /// frame, since `zoom` can follow other traits, for each named image
+    /// with a literal filename whose texture loads; a value a driver set
+    /// itself (through [`Self::set_override`]) is kept.
+    fn fill_file_dims(&mut self, assets: &dyn MenuAssets) {
+        let images: Vec<(usize, String, String)> = self
+            .doc
+            .tiles
+            .iter()
+            .enumerate()
+            .filter(|(_, tile)| tile.kind == crate::parse::TileKind::Image)
+            .filter_map(|(idx, tile)| {
+                let name = tile.name.as_deref()?.to_lowercase();
+                match tile.traits.get("filename")? {
+                    crate::parse::RawTrait::Str(file) => Some((idx, name, file.clone())),
+                    _ => None,
+                }
+            })
+            .filter(|(_, name, _)| !self.driver_dims.contains(name))
+            .collect();
+        if images.is_empty() {
+            return;
+        }
+        let zooms: Vec<f32> = {
+            let mut eval = EvalState::new(&self.doc, self.screen, &self.strings, &self.overrides);
+            images
+                .iter()
+                .map(|(idx, _, _)| match eval.trait_value(*idx, "zoom").as_num() {
+                    zoom if zoom > 0.0 => zoom / 100.0,
+                    _ => 1.0,
+                })
+                .collect()
+        };
+        for ((_, name, file), zoom) in images.into_iter().zip(zooms) {
+            if let Some(tex) = self.texture(assets, &file, zoom * 100.0) {
+                self.overrides.insert((name.clone(), "filewidth".into()), Scalar::Num(tex.width as f32 * zoom));
+                self.overrides.insert((name, "fileheight".into()), Scalar::Num(tex.height as f32 * zoom));
+            }
+        }
+    }
+
+    /// Evaluate `tile`'s `traits` against the current overrides — a
+    /// diagnostic for drivers working out what a menu's code must set.
+    /// Returns `(trait, value)` for each trait that resolved; `None` when
+    /// there is no such tile.
+    pub fn probe(&self, tile: &str, traits: &[&str]) -> Option<Vec<(String, Scalar)>> {
+        let idx = self.tile(tile)?;
+        let mut eval = EvalState::new(&self.doc, self.screen, &self.strings, &self.overrides);
+        eval.resolve_all();
+        Some(traits.iter().map(|name| (name.to_string(), eval.trait_value(idx, name))).collect())
+    }
+
     pub fn frame_size(&self) -> (u32, u32) {
         (self.frame.width, self.frame.height)
     }
@@ -488,6 +556,10 @@ impl MenuRenderer {
             v
         } else if let Some(rest) = lowered.strip_prefix("textures\\") {
             vec![format!("textures\\{rest}")]
+        } else if !lowered.contains('\\') {
+            // A bare name: FO3/FNV prefabs write `solid.dds` for the art in
+            // `textures\interface\shared\` (`box.xml`'s highlight lines).
+            vec![format!("textures\\{lowered}"), format!("textures\\interface\\shared\\{lowered}")]
         } else {
             vec![format!("textures\\{lowered}")]
         };

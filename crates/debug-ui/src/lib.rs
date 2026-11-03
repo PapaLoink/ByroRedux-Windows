@@ -107,6 +107,10 @@ pub struct DebugUiState {
     /// Short player-facing save/load status toast. The same text is retained
     /// in console history for later diagnostics.
     player_message: Option<(String, std::time::Instant)>,
+    /// The cutscene playing full screen over everything, if any. `None` in
+    /// the inner slot is a cutscene still waiting for its first frame
+    /// (drawn black).
+    video: Option<Option<egui::TextureHandle>>,
 }
 
 /// Per-panel input + history state. Lives on [`DebugUiState`] so it
@@ -164,7 +168,39 @@ impl DebugUiState {
             panels: PanelState::default(),
             game_menu: GameMenuState::default(),
             player_message: None,
+            video: None,
         }
+    }
+
+    /// Start showing a full-screen cutscene: black until the first
+    /// [`Self::set_video_frame`].
+    pub fn begin_video(&mut self) {
+        self.video = Some(None);
+    }
+
+    /// Replace the cutscene's picture with one RGBA8 frame.
+    pub fn set_video_frame(&mut self, size: [usize; 2], rgba: &[u8]) {
+        let image = egui::ColorImage::from_rgba_unmultiplied(size, rgba);
+        match &mut self.video {
+            Some(Some(texture)) if texture.size() == size => {
+                texture.set(image, egui::TextureOptions::LINEAR);
+            }
+            _ => {
+                let texture =
+                    self.egui_ctx
+                        .load_texture("cutscene", image, egui::TextureOptions::LINEAR);
+                self.video = Some(Some(texture));
+            }
+        }
+    }
+
+    /// Stop showing the cutscene; its texture is freed.
+    pub fn end_video(&mut self) {
+        self.video = None;
+    }
+
+    pub fn video_visible(&self) -> bool {
+        self.video.is_some()
     }
 
     /// Append a line to the console scrollback, trimming the oldest
@@ -266,13 +302,37 @@ impl DebugUiState {
     /// pause landing page so Escape is a predictable escape hatch from any
     /// settings category.
     pub fn toggle_game_menu(&mut self) -> bool {
-        self.game_menu.visible = !self.game_menu.visible;
-        if self.game_menu.visible {
-            self.game_menu.page = GameMenuPage::Pause;
-        } else {
+        if !self.game_menu.toggle() {
             self.discard_last_output();
         }
         self.game_menu.visible
+    }
+
+    /// Open the title screen, naming the game on it. `native`: the host
+    /// draws it (the game's own menu) and this crate only keeps its state.
+    pub fn open_main_menu(&mut self, title: String, native: bool) {
+        self.game_menu.visible = true;
+        self.game_menu.page = GameMenuPage::MainMenu;
+        self.game_menu.main_menu_title = title;
+        self.game_menu.main_menu_native = native;
+    }
+
+    pub fn main_menu_visible(&self) -> bool {
+        self.game_menu.visible && self.game_menu.page == GameMenuPage::MainMenu
+    }
+
+    /// The title screen is up: its own page, or the Settings page opened
+    /// from it (the title screen stays behind that).
+    pub fn on_title_screen(&self) -> bool {
+        self.game_menu.visible
+            && (self.game_menu.page == GameMenuPage::MainMenu || self.game_menu.settings_from_main_menu)
+    }
+
+    /// Open the Settings page from the title screen; Back and Escape return.
+    pub fn open_settings_from_main_menu(&mut self) {
+        self.game_menu.visible = true;
+        self.game_menu.settings_from_main_menu = true;
+        self.game_menu.page = GameMenuPage::Settings;
     }
 
     /// Open the native menu directly on the player's inventory page.
@@ -336,7 +396,7 @@ impl DebugUiState {
     /// Native pause/settings owns every gameplay input event while open,
     /// regardless of whether an individual egui widget consumed it.
     pub fn captures_gameplay_input(&self) -> bool {
-        self.game_menu.visible || self.visible
+        self.game_menu.visible || self.visible || self.video.is_some()
     }
 
     /// Whether the simulation clock and scheduler stop while a surface is
@@ -346,7 +406,8 @@ impl DebugUiState {
     /// drain alive so a route smoke can assert on the presented response
     /// while the surface is up.
     pub fn simulation_paused(&self) -> bool {
-        self.game_menu.visible && self.game_menu.page != GameMenuPage::Dialogue
+        (self.game_menu.visible && self.game_menu.page != GameMenuPage::Dialogue)
+            || self.video.is_some()
     }
 
     /// Run one egui frame against a pre-built [`PanelSnapshot`].
@@ -370,6 +431,7 @@ impl DebugUiState {
         }
         if !self.visible
             && !self.game_menu.visible
+            && self.video.is_none()
             && snapshot.interaction_prompt.is_none()
             && !snapshot.show_crosshair
             // Vitals/objectives only count toward "something visible" when
@@ -407,7 +469,9 @@ impl DebugUiState {
         // sugar fighting the borrow.
         self.egui_ctx.begin_pass(raw_input);
         let mut outputs = PanelOutputs::default();
-        if let Some(tip) = snapshot.loading_tip.as_deref() {
+        if let Some(video) = &self.video {
+            panels::draw_video(&self.egui_ctx, video.as_ref());
+        } else if let Some(tip) = snapshot.loading_tip.as_deref() {
             panels::draw_loading_tip(&self.egui_ctx, tip);
         } else {
             if !self.game_menu.visible {

@@ -152,6 +152,9 @@ impl Framebuffer {
     ///   constant ~63%-of-width bar at every health value.
     /// * `zoom > 0` — natural size scaled by `zoom / 100`, clipped the same
     ///   way.
+    /// * In both, a tile larger than the (scaled) art along an axis repeats
+    ///   the art along it (FO3/FNV `box.xml`'s lines: a 4×4 texture across a
+    ///   370×2 tile).
     ///
     /// `crop` is the authored `cropx`/`cropy` in display pixels; per the
     /// wiki it applies after zoom, so the texel-space source offset is
@@ -202,6 +205,15 @@ impl Framebuffer {
             let scale = if zoom <= 0.0 { 1.0 } else { zoom / 100.0 };
             (tex.width as f32 * scale, tex.height as f32 * scale)
         };
+        // A natural/zoom tile larger than its art along an axis repeats the
+        // art along it rather than leaving the rest empty — FO3/FNV's
+        // `box.xml` draws each highlight line from the 4×4 `solid.dds` into a
+        // 370×2 tile. A tile no larger than its art (the HUD ribbons' fill
+        // fractions) is clipped exactly as before.
+        let repeat_x = !tiled && zoom >= 0.0 && dst.w > draw_w + 0.5;
+        let repeat_y = !tiled && zoom >= 0.0 && dst.h > draw_h + 0.5;
+        let span_w = if repeat_x { dst.w } else { draw_w };
+        let span_h = if repeat_y { dst.h } else { draw_h };
         // Clip chain: outer clip window ∩ the tile's own rect.
         let tile = Rect {
             x: dst.x,
@@ -226,12 +238,12 @@ impl Framebuffer {
         // stay framebuffer coordinates, so the texel mapping below is unchanged.
         let cols = axis_span(
             dst.x.max(clip.x),
-            (dst.x + draw_w).min(clip.x + clip.w),
+            (dst.x + span_w).min(clip.x + clip.w),
             self.width,
         );
         let rows = axis_span(
             dst.y.max(clip.y),
-            (dst.y + draw_h).min(clip.y + clip.h),
+            (dst.y + span_h).min(clip.y + clip.h),
             self.height,
         );
 
@@ -259,6 +271,8 @@ impl Framebuffer {
                     .wrapping_add(py)
                     .wrapping_sub(dst.y as i64)
                     .rem_euclid(th)
+            } else if repeat_y {
+                ((src_y0 + v * src_h) as i64).rem_euclid(th)
             } else {
                 (src_y0 + v * src_h) as i64
             };
@@ -269,6 +283,8 @@ impl Framebuffer {
                         .wrapping_add(px)
                         .wrapping_sub(dst.x as i64)
                         .rem_euclid(tw)
+                } else if repeat_x {
+                    ((src_x0 + u * src_w) as i64).rem_euclid(tw)
                 } else {
                     (src_x0 + u * src_w) as i64
                 };
@@ -777,6 +793,33 @@ mod tests {
         );
         let reds: Vec<u8> = fb.pixels.chunks_exact(4).map(|p| p[0]).collect();
         assert_eq!(reds, [20, 30, 40, 50]);
+    }
+
+    /// FO3/FNV `box.xml` draws each highlight line from a 4×4 `solid.dds`
+    /// into a long thin tile: the art repeats along the axis the tile is
+    /// longer in, instead of one 2×2 corner and nothing else.
+    #[test]
+    fn a_tile_larger_than_its_art_repeats_the_art() {
+        let tex = red_tex();
+        let (count, fb) = blended(|fb| {
+            fb.blit(&tex, rect(0.0, 0.0, 20.0, 1.0), (0.0, 0.0), 0.0, false, style());
+        });
+        assert_eq!(count, 20, "the whole 20×1 line is drawn");
+        assert!(fb.pixels.chunks_exact(4).take(20).all(|p| p == [255, 0, 0, 255]));
+    }
+
+    /// The HUD ribbons' shape: a tile no larger than its art still clips it
+    /// at natural size (a fill fraction, never a stretch or a repeat).
+    #[test]
+    fn a_tile_within_its_art_is_still_clipped() {
+        let mut tex = Rgba8::new(8, 1);
+        for (i, px) in tex.pixels.chunks_exact_mut(4).enumerate() {
+            px.copy_from_slice(&[i as u8 * 10, 0, 0, 255]);
+        }
+        let mut fb = Framebuffer::new(8, 1);
+        fb.blit(&tex, rect(0.0, 0.0, 3.0, 1.0), (0.0, 0.0), 0.0, false, style());
+        let reds: Vec<u8> = fb.pixels.chunks_exact(4).map(|p| p[0]).collect();
+        assert_eq!(reds, [0, 10, 20, 0, 0, 0, 0, 0]);
     }
 
     fn probe_font(advance: f32) -> Font {

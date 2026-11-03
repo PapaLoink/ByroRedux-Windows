@@ -32,6 +32,17 @@
 //! The companion `.tex` is `u32 width, u32 height, width*height*4` raw
 //! RGBA — white glyph ink on transparent, tinted at draw time by the
 //! text tile's red/green/blue traits (see [`crate::raster`]).
+//!
+//! **Fallout 3 / New Vegas** fonts share the size and header but lay the
+//! two axes out the other way round: `[1]`/`[3]` are u0/u1, `[2]`/`[6]`
+//! v0/v1, `[9]` the glyph *width* and `[10]` its height. Measured on
+//! FNV's `Baked-in_Monofonto_Large` (36 pt, 512² atlas): `A`/`N`/`E`/`W`
+//! have `[10] == 36` — the line height — and `[9]` 24–27, with
+//! `([3] − [1]) × 512 == [9]`. The record matches JIP LN NVSE's
+//! `FontInfo::CharDimensions` (width at +0x24, height +0x28, `widthMod`
+//! +0x30); the advance and the vertical placement are in the Fallout arm
+//! of [`Font::parse`]. Which layout a font uses is read from the table
+//! itself (see [`Axes::detect`]).
 
 use crate::tex::Rgba8;
 
@@ -95,35 +106,63 @@ impl Font {
                 expect,
             });
         }
+        let field = |c: usize, i: usize| {
+            let at = HEADER_LEN + c * GLYPH_LEN + i * 4;
+            f32::from_le_bytes(fnt[at..at + 4].try_into().unwrap())
+        };
+        let axes = Axes::detect(|c| (field(c, 9), field(c, 10), field(c, 13)));
+        // FO3/FNV: the tallest glyph's height above the baseline, which the
+        // line's glyphs hang from (see the Fallout arm below).
+        let max_ascent = (0..GLYPH_COUNT)
+            .filter(|&c| field(c, 9) > 0.0 && field(c, 10) > 0.0)
+            .map(|c| field(c, 13))
+            .fold(0.0f32, f32::max);
         let mut glyphs = Vec::with_capacity(GLYPH_COUNT);
         for c in 0..GLYPH_COUNT {
-            let base = HEADER_LEN + c * GLYPH_LEN;
-            let f = |i: usize| {
-                f32::from_le_bytes(fnt[base + i * 4..base + i * 4 + 4].try_into().unwrap())
+            let f = |i: usize| field(c, i);
+            let glyph = match axes {
+                Axes::Oblivion => {
+                    let y_offset = f(12);
+                    // Advance lives at [13]; the space glyph alone parks it at
+                    // [12] with [13] zero (verified across the vanilla corpus:
+                    // every inked glyph has [12] == −1 and [13] > 0, space has
+                    // [12] == 11 and [13] == 0).
+                    let advance = if f(13) != 0.0 { f(13) } else if c == b' ' as usize { y_offset } else { 0.0 };
+                    Glyph {
+                        u0: f(2),
+                        v0: f(1),
+                        u1: f(6),
+                        v1: f(3),
+                        width: f(10),
+                        height: f(9),
+                        advance,
+                        y_offset: if c == b' ' as usize { 0.0 } else { y_offset },
+                        inked: f(10) > 0.0 && f(9) > 0.0,
+                    }
+                }
+                // FO3/FNV, per the 1.4.0.525 exe: `FontManager::GetStringDimensions`
+                // (0xA1B020) advances the pen by `[9] + [11] + [12]` (width plus
+                // two adjustments, `[12]` −10 on every inked glyph of the
+                // glow-padded fonts, +13 for the blank space). `[13]` is the
+                // glyph's height above the baseline — 30 for caps and `i`, 23
+                // for `e` and `g` — so every cell's ink bottom lands at the same
+                // line (`g`'s descender below it): a glyph is drawn
+                // `max_ascent − [13]` below the tallest one's top, shifted by
+                // `[12]` as the cells' glow padding was before. That vertical
+                // reading is from the metrics, not yet from the draw code.
+                Axes::Fallout => Glyph {
+                    u0: f(1),
+                    v0: f(2),
+                    u1: f(3),
+                    v1: f(6),
+                    width: f(9),
+                    height: f(10),
+                    advance: (f(9) + f(11) + f(12)).max(0.0),
+                    y_offset: if f(9) > 0.0 { max_ascent - f(13) + f(12) } else { 0.0 },
+                    inked: f(9) > 0.0 && f(10) > 0.0,
+                },
             };
-            let v0 = f(1);
-            let u0 = f(2);
-            let v1 = f(3);
-            let u1 = f(6);
-            let width = f(10);
-            let height = f(9);
-            let y_offset = f(12);
-            // Advance lives at [13]; the space glyph alone parks it at
-            // [12] with [13] zero (verified across the vanilla corpus:
-            // every inked glyph has [12] == −1 and [13] > 0, space has
-            // [12] == 11 and [13] == 0).
-            let advance = if f(13) != 0.0 { f(13) } else if c == b' ' as usize { y_offset } else { 0.0 };
-            glyphs.push(Glyph {
-                u0,
-                v0,
-                u1,
-                v1,
-                width,
-                height,
-                advance,
-                y_offset: if c == b' ' as usize { 0.0 } else { y_offset },
-                inked: width > 0.0 && height > 0.0,
-            });
+            glyphs.push(glyph);
         }
         Ok(Self {
             point_size,
@@ -150,6 +189,39 @@ impl Font {
     /// (28 pt font, 28 px rows in the HUD's authored coordinates).
     pub fn line_height(&self) -> f32 {
         self.point_size
+    }
+}
+
+/// Which way round a `.fnt`'s glyph records store the two axes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Axes {
+    /// `[9]` height, `[10]` width, `[2]`/`[6]` u.
+    Oblivion,
+    /// `[9]` width, `[10]` height, `[1]`/`[3]` u (FO3/FNV).
+    Fallout,
+}
+
+impl Axes {
+    /// Whichever of `[9]`/`[10]` stays within `[13]` for more of the inked
+    /// glyphs is the width. In Oblivion `[13]` is the pen advance, which a
+    /// glyph's width fits inside; in FO3/FNV it is the height above the
+    /// baseline, which the (padded) width also stays within while the full
+    /// cell height does not (FNV `A`: `[9]` 26, `[10]` 36, `[13]` 30). A tie
+    /// keeps the Oblivion reading.
+    fn detect(record: impl Fn(usize) -> (f32, f32, f32)) -> Self {
+        let (mut nine_fits, mut ten_fits) = (0, 0);
+        for c in 0..GLYPH_COUNT {
+            let (nine, ten, advance) = record(c);
+            if nine > 0.0 && ten > 0.0 && advance > 0.0 {
+                nine_fits += usize::from(nine <= advance + 1.0);
+                ten_fits += usize::from(ten <= advance + 1.0);
+            }
+        }
+        if nine_fits > ten_fits {
+            Self::Fallout
+        } else {
+            Self::Oblivion
+        }
     }
 }
 

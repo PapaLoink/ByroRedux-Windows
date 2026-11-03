@@ -327,7 +327,7 @@ pub(crate) fn stop_script_music(world: &World) {
 
 /// `relative` (`\\`- or `/`-separated) under `root`, matching each component without regard to case
 /// (the games' files are Windows-cased; this filesystem is not).
-fn find_case_insensitive(root: &std::path::Path, relative: &str) -> Option<std::path::PathBuf> {
+pub(crate) fn find_case_insensitive(root: &std::path::Path, relative: &str) -> Option<std::path::PathBuf> {
     let mut path = root.to_path_buf();
     for component in relative.split(['\\', '/']).filter(|part| !part.is_empty()) {
         let exact = path.join(component);

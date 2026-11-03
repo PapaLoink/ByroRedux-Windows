@@ -50,6 +50,16 @@ fn main() {
         build.file(vendor.join(source));
     }
 
+    // `vulkan/vulkan.h`: on Linux it is a system header; on Windows it lives
+    // only in the LunarG SDK, whose installer sets `VULKAN_SDK`.
+    println!("cargo:rerun-if-env-changed=VULKAN_SDK");
+    if let Some(sdk) = env::var_os("VULKAN_SDK") {
+        let include = PathBuf::from(sdk).join("Include");
+        if include.join("vulkan").join("vulkan.h").is_file() {
+            build.include(include);
+        }
+    }
+
     if target_env != "msvc" {
         build.define("FFX_GCC", None);
         build.flag("-include").flag(
@@ -79,6 +89,14 @@ fn main() {
     build.compile("byroredux_fsr3");
 
     if target_os == "windows" {
+        // `vulkan-1.lib` ships in the SDK's `Lib`, which is on no default
+        // linker path.
+        if let Some(sdk) = env::var_os("VULKAN_SDK") {
+            let lib = PathBuf::from(sdk).join("Lib");
+            if lib.join("vulkan-1.lib").is_file() {
+                println!("cargo:rustc-link-search=native={}", lib.display());
+            }
+        }
         println!("cargo:rustc-link-lib=vulkan-1");
         if target_env == "gnu" {
             println!("cargo:rustc-link-lib=m");

@@ -1085,6 +1085,27 @@ impl ApplicationHandler for App {
                         ui.open_studio();
                     }
                     self.release_world_input_for_ui();
+                } else if crate::cli_args::effective_args().iter().any(|a| a == "--start-new-game") {
+                    // `--start-new-game`: what the title screen's New Game
+                    // does, without the title screen (and without a click,
+                    // so a bench run can drive it).
+                    self.begin_new_game();
+                } else if crate::cli_args::effective_args().iter().any(|a| a == "--main-menu") {
+                    // `--main-menu`: boot onto the title screen, the start
+                    // already loaded and paused behind it — the game's own
+                    // `start_menu.xml` when the FO3/FNV corpus is there, else
+                    // the native menu page.
+                    let args = crate::cli_args::effective_args();
+                    let title = crate::cli_args::parse_string_arg(&args, "--main-menu-title").unwrap_or_default();
+                    self.start_menu = self
+                        .renderer
+                        .as_mut()
+                        .and_then(|ctx| crate::start_menu::StartMenu::launch(ctx, &self.world, &args));
+                    let native = self.start_menu.is_some();
+                    if let Some(ui) = self.debug_ui.as_mut() {
+                        ui.open_main_menu(title, native);
+                    }
+                    self.release_world_input_for_ui();
                 }
                 crate::sync_camera_setting(&self.world);
                 // Preserve the scene/CLI-authored camera before the startup
@@ -1182,12 +1203,33 @@ impl ApplicationHandler for App {
                 })
                 == Some(key)
         });
+        // A cutscene owns the keyboard: Escape, Space or Enter skips it and
+        // every other key is swallowed until it ends.
+        if self.cutscene.is_some() {
+            if matches!(
+                pressed_key,
+                Some(KeyCode::Escape | KeyCode::Space | KeyCode::Enter | KeyCode::NumpadEnter)
+            ) {
+                self.end_cutscene();
+            }
+            if !matches!(event, WindowEvent::CloseRequested | WindowEvent::Resized(_)) {
+                return;
+            }
+        }
+        let main_menu_open = self
+            .debug_ui
+            .as_ref()
+            .is_some_and(byroredux_debug_ui::DebugUiState::main_menu_visible);
         if game_menu_open {
             if pressed_key == Some(KeyCode::Escape) {
                 self.toggle_game_menu();
                 return;
             }
-            if inventory_pressed {
+            if main_menu_open && self.start_menu.is_some() {
+                self.route_start_menu_event(&event, pressed_key, event_loop);
+            }
+            // The title screen has no inventory to open.
+            if inventory_pressed && !main_menu_open {
                 if self
                     .debug_ui
                     .as_ref()

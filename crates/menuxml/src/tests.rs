@@ -1033,6 +1033,78 @@ fn locus_chain_positions_correctly() {
     }
 }
 
+/// `globals()` reads the menu-wide sheet (FO3/FNV `globals.xml`), whose
+/// values may be formulas over `screen()` — evaluated once at load.
+#[test]
+fn globals_selector_reads_the_evaluated_sheet() {
+    let (doc, _memo) = eval_all(r#"
+        <menu name="M">
+            <image name="line">
+                <height> <copy src="globals()" trait="_line_thickness"/> </height>
+            </image>
+        </menu>"#);
+    let sheet = HashMap::from([("_line_thickness".to_string(), Scalar::Num(2.0))]);
+    let overrides = Overrides::new();
+    let mut eval = EvalState::new(&doc, ScreenTraits::new(1707.0, 960.0), &sheet, &overrides);
+    assert_eq!(eval.trait_value(doc.name_index["line"], "height").as_num(), 2.0);
+
+    let (sheet_doc, _memo) = eval_all(r#"
+        <rect name="Strings">
+            <_line_thickness> <copy> 2 </copy> <mul src="screen()" trait="resolutionconverter"/> </_line_thickness>
+        </rect>"#);
+    let empty = HashMap::new();
+    let mut eval = EvalState::new(&sheet_doc, ScreenTraits::new(1707.0, 960.0), &empty, &overrides);
+    assert_eq!(eval.trait_value(0, "_line_thickness").as_num(), 2.0, "1.0 on the 960-tall authored screen");
+}
+
+/// A hidden tile hides its children too — FO3/FNV list boxes hide their
+/// scrollbar, whose arrow images have no `visible` of their own.
+#[test]
+fn a_hidden_tile_hides_its_subtree() {
+    let (doc, _memo) = eval_all(r#"
+        <menu name="M">
+            <image name="scrollbar">
+                <visible> 0 </visible>
+                <filename> track.dds </filename>
+                <image name="arrow"> <filename> arrow_up.dds </filename> </image>
+            </image>
+            <image name="shown"> <filename> logo.dds </filename> </image>
+        </menu>"#);
+    let strings = HashMap::new();
+    let overrides = Overrides::new();
+    let mut eval = EvalState::new(&doc, ScreenTraits::new(1280.0, 720.0), &strings, &overrides);
+    let items = build_draw_list(&doc, &mut eval);
+    let drawn: Vec<usize> = items.iter().map(|item| item.tile()).collect();
+    assert_eq!(drawn, vec![doc.name_index["shown"]]);
+}
+
+/// FO3/FNV `hotrect` is a tile (a clickable rect), so its children lay out
+/// and draw; `io()` reads the menu root and `grandparent()` two levels up.
+#[test]
+fn hotrect_children_draw_and_read_io_and_grandparent() {
+    let (doc, _memo) = eval_all(r#"
+        <menu name="M">
+            <_item_height> 48 </_item_height>
+            <hotrect name="list">
+                <_alpha> 200 </_alpha>
+                <rect name="item">
+                    <height> <copy src="io()" trait="_item_height"/> </height>
+                    <image name="icon">
+                        <alpha> <copy src="grandparent()" trait="_alpha"/> </alpha>
+                        <filename> icon.dds </filename>
+                    </image>
+                </rect>
+            </hotrect>
+        </menu>"#);
+    let strings = HashMap::new();
+    let overrides = Overrides::new();
+    let mut eval = EvalState::new(&doc, ScreenTraits::new(1280.0, 720.0), &strings, &overrides);
+    assert_eq!(eval.trait_value(doc.name_index["item"], "height").as_num(), 48.0);
+    assert_eq!(eval.trait_value(doc.name_index["icon"], "alpha").as_num(), 200.0);
+    let items = build_draw_list(&doc, &mut eval);
+    assert!(items.iter().any(|item| item.tile() == doc.name_index["icon"]));
+}
+
 /// Depth ordering: siblings draw ascending `depth` regardless of
 /// document order.
 #[test]
@@ -1836,7 +1908,8 @@ fn profiles_pin_corpus_facts() {
     ] {
         assert_eq!(profile.font_paths.len(), slots, "{} font slots", profile.label);
         assert_eq!(profile.font_archive, FontArchive::Textures);
-        assert_eq!(profile.strings_path, None);
+        // The `globals()` sheet the FO3/FNV prefabs read (box.xml's lines).
+        assert_eq!(profile.strings_path, Some("menus\\globals.xml"));
         // Both atlas candidates beside each .fnt, .tex preferred.
         assert_eq!(
             (profile.font_atlas)("Glow_Monofonto_Large_0_Lod_A"),

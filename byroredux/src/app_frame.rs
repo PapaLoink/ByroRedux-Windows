@@ -357,6 +357,7 @@ impl App {
             }
         }
 
+        self.step_cutscene();
         let (egui_frame, outputs) =
             if let (Some(ref mut ui), Some(win)) = (self.debug_ui.as_mut(), self.window.as_ref()) {
                 let outputs = ui.run(win, &snapshot);
@@ -368,13 +369,15 @@ impl App {
         self.objective_hud_cache
             .give_back(snapshot.objectives.take());
 
-        let (resume_game, quit_game) = apply_debug_ui_outputs(
+        let (resume_game, quit_game, new_game) = apply_debug_ui_outputs(
             &mut self.world,
             outputs,
             &mut self.debug_ui_refresh_entities,
             self.debug_ui.as_mut(),
         );
-        if resume_game {
+        if new_game {
+            self.begin_new_game();
+        } else if resume_game {
             self.resume_from_game_menu();
         }
         if quit_game {
@@ -579,8 +582,18 @@ impl App {
             // (M48.4) owns the overlay when live; otherwise this is the
             // Ruffle SWF player.
             let ui_t0 = Instant::now();
+            // The title screen and a cutscene are not gameplay: no HUD. The
+            // game's own title screen owns the overlay while it is up.
+            let on_title_screen = self
+                .debug_ui
+                .as_ref()
+                .is_some_and(byroredux_debug_ui::DebugUiState::on_title_screen);
             let ui_tex = if self.loading_screen.active() {
                 self.loading_screen.texture()
+            } else if let (true, Some(menu)) = (on_title_screen, self.start_menu.as_mut()) {
+                Some(menu.render_and_upload(ctx))
+            } else if self.cutscene.is_some() || on_title_screen {
+                None
             } else if self.hud.is_some() {
                 // Read the control resource before mutably borrowing the
                 // HUD renderer (disjoint-field borrows, but the resource

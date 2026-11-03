@@ -181,6 +181,17 @@ impl HudGameProfile {
         }
     }
 
+    /// The corpus profile (font table, strings source) menus load with.
+    pub(crate) fn menu_profile(&self) -> MenuProfile {
+        self.menu
+    }
+
+    /// Fallout 3 / New Vegas — the corpus whose `menus\options\start_menu.xml`
+    /// is the title screen.
+    pub(crate) fn is_fallout(&self) -> bool {
+        self.misc_bsa == "Fallout - Misc.bsa"
+    }
+
     /// The driven-bar count (2 Fallout, 3 Oblivion).
     fn bar_count(&self) -> usize {
         self.bars.len()
@@ -456,20 +467,12 @@ pub(crate) fn menu_owned_overlay_skip(menu_player_installed: bool) -> Option<&'s
     menu_player_installed.then_some("hud: --menu owns the overlay — HUD route skipped")
 }
 
-/// Launch the HUD when `--hud` is present. Mirrors `launch_archive_menu`:
-/// opens the archives, assembles the per-game HUD content, registers the
-/// transparent overlay texture (#4892 collapsed the triple buffer to one),
-/// and logs the `hud: loaded` line a smoke gate can grep.
-pub(crate) fn launch_hud(
-    ctx: &mut byroredux_renderer::vulkan::context::VulkanContext,
-    world: &mut World,
-    ui_manager: &Option<byroredux_ui::UiManager>,
-    args: &[String],
-) -> Option<MenuXmlHud> {
-    if let Some(reason) = menu_owned_overlay_skip(ui_manager.is_some()) {
-        log::info!("{reason} (MenuXml)");
-        return None;
-    }
+/// Open the menu corpus `--hud` names (see [`hud_archive_args`]): the Misc
+/// archive and the texture pool, with the game profile. Also returns the two
+/// archive paths, for the load log line. `None` (logged) when `--hud` is
+/// absent or an archive will not open. Shared with the title screen
+/// (`crate::start_menu`), which reads the same corpus.
+pub(crate) fn open_hud_assets(args: &[String]) -> Option<(HudAssets, String, String)> {
     let (misc_path, textures_path, profile) = match hud_archive_args(args) {
         Ok(Some(triple)) => triple,
         Ok(None) => return None,
@@ -498,11 +501,31 @@ pub(crate) fn launch_hud(
         log::error!("hud: texture archive open failed: '{textures_path}'");
         return None;
     }
-    let assets = HudAssets {
-        misc,
-        textures,
-        profile,
-    };
+    Some((HudAssets { misc, textures, profile }, misc_path, textures_path))
+}
+
+impl HudAssets {
+    pub(crate) fn profile(&self) -> HudGameProfile {
+        self.profile
+    }
+}
+
+/// Launch the HUD when `--hud` is present. Mirrors `launch_archive_menu`:
+/// opens the archives, assembles the per-game HUD content, registers the
+/// transparent overlay texture (#4892 collapsed the triple buffer to one),
+/// and logs the `hud: loaded` line a smoke gate can grep.
+pub(crate) fn launch_hud(
+    ctx: &mut byroredux_renderer::vulkan::context::VulkanContext,
+    world: &mut World,
+    ui_manager: &Option<byroredux_ui::UiManager>,
+    args: &[String],
+) -> Option<MenuXmlHud> {
+    if let Some(reason) = menu_owned_overlay_skip(ui_manager.is_some()) {
+        log::info!("{reason} (MenuXml)");
+        return None;
+    }
+    let (assets, misc_path, textures_path) = open_hud_assets(args)?;
+    let profile = assets.profile;
 
     let (w, h) = ctx.swapchain_extent();
     let screen = ScreenTraits::new(w as f32, h as f32);

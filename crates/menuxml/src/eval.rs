@@ -62,6 +62,11 @@ enum Selector<'a> {
     Me,
     /// `parent()`
     Parent,
+    /// `grandparent()` — FO3/FNV list items read their list box through it.
+    Grandparent,
+    /// `io()` — the menu root, where the menu's code-set values live
+    /// (FO3/FNV `StartMenu`'s `_item_height`, `user5`).
+    Io,
     /// `sibling(name)`
     Sibling(&'a str),
     /// `child(name)`
@@ -78,8 +83,11 @@ fn parse_selector(src: &str) -> Selector<'_> {
         match inner {
             "me" => return Selector::Me,
             "parent" => return Selector::Parent,
+            "grandparent" => return Selector::Grandparent,
+            "io" => return Selector::Io,
             "screen" => return Selector::Pseudo("screen"),
-            "strings" => return Selector::Pseudo("strings"),
+            // FO3/FNV call their sheet `globals()`; it is the same pseudo-tile.
+            "strings" | "globals" => return Selector::Pseudo("strings"),
             _ => {}
         }
     }
@@ -96,7 +104,7 @@ fn parse_selector(src: &str) -> Selector<'_> {
     // `screen`/`strings` also appear without parens in some menus.
     match trimmed {
         "screen" => Selector::Pseudo("screen"),
-        "strings" => Selector::Pseudo("strings"),
+        "strings" | "globals" => Selector::Pseudo("strings"),
         _ => Selector::Named(trimmed),
     }
 }
@@ -229,6 +237,11 @@ impl<'a> EvalState<'a> {
                 // 0 for unknown traits).
                 None => self.trait_value(0, trait_name),
             },
+            Selector::Grandparent => {
+                let grandparent = self.doc.tiles[tile].parent.and_then(|p| self.doc.tiles[p].parent);
+                self.trait_value(grandparent.unwrap_or(0), trait_name)
+            }
+            Selector::Io => self.trait_value(0, trait_name),
             Selector::Sibling(name) => {
                 let parent = self.doc.tiles[tile].parent;
                 let sibling = parent.and_then(|p| {
@@ -271,6 +284,10 @@ impl<'a> EvalState<'a> {
                 "height" => Scalar::Num(self.screen.height),
                 "cropx" => Scalar::Num(self.screen.cropx),
                 "cropy" => Scalar::Num(self.screen.cropy),
+                // FO3/FNV `globals.xml` scales line thickness by it. Read as
+                // the screen height over the 960 the menus are authored at —
+                // an inference from that formula, 1 on the authored screen.
+                "resolutionconverter" => Scalar::Num(self.screen.height / 960.0),
                 _ => Scalar::Num(0.0),
             },
             Selector::Pseudo("strings") => {

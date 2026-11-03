@@ -45,3 +45,15 @@ crates/*/examples/tmp_*
 
 # Python bytecode (scripts/m-light tools)
 __pycache__/
+
+# Local game data: Bethesda's own files (ESMs, BSAs, music, video) and the
+# launchers that sit beside them. The engine reads them at run time; they
+# are never part of the repository.
+/game-data/
+
+# Local source archive, not part of the tree.
+/byroredux/src.zip
+
+# New engine screenshots written by the debug server's `screenshot`
+# (screenshots already in the repository stay tracked).
+/screenshots/*.png
