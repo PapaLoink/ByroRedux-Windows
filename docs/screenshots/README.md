@@ -9,17 +9,27 @@ tools, no mod manager.
 
 | File | Game | Cell | Notes |
 |---|---|---|---|
-| [`prospector-saloon.png`](prospector-saloon.png) | Fallout: New Vegas | `GSProspectorSaloonInterior` | 789 entities, 85 FPS, cell XCLL lighting |
-| [`prospector-saloon-exterior.png`](prospector-saloon-exterior.png) | Fallout: New Vegas | Goodsprings — outside Prospector Saloon | Exterior scene with procedural clouds |
-| [`oblivion-cyrodiil-ruins.png`](oblivion-cyrodiil-ruins.png) | The Elder Scrolls IV: Oblivion | Cyrodiil exterior (location not recorded) | SpeedTree canopy, ground-cover grass, ruins in the distance |
-| `anvil-oaken-halls.png` | The Elder Scrolls IV: Oblivion | `AnvilHeinrichOakenHallsHouse` | 379 entities, 376 meshes, 104 textures, 12 lights (cell XCLL + per-mesh NiLight torches), ~1600 FPS |
+| [`whiterun-bannered-mare.png`](whiterun-bannered-mare.png) | The Elder Scrolls V: Skyrim SE | `WhiterunBanneredMare` | 6,228 entities, 460 meshes, 352 textures; RT multi-light, captured 2026-11-03 after the lighting overhaul |
+| [`prospector-saloon.png`](prospector-saloon.png) | Fallout: New Vegas | `GSProspectorSaloonInterior` | 2,278 entities, 382 meshes, 345 textures; cell XCLL lighting, RT multi-light, captured 2026-11-03 after the lighting overhaul |
+| [`new-vegas-strip.png`](new-vegas-strip.png) | Fallout: New Vegas | `TheStripWorldNew` grid 0,0 radius 2 — the Lucky 38 and LVB Station | 11,383 entities, 1,171 meshes, 603 textures; exterior worldspace streaming, captured 2026-11-03 after the lighting overhaul |
+| [`oblivion-great-forest.png`](oblivion-great-forest.png) | The Elder Scrolls IV: Oblivion | `Tamriel` grid -19,14 radius 3 — the Great Forest near Weatherleah, east of Chorrol | 28,121 entities, 1,543 meshes, 721 textures; SpeedTree canopy + ground cover, captured 2026-11-03 after the lighting overhaul |
+| [`anvil-oaken-halls.png`](anvil-oaken-halls.png) | The Elder Scrolls IV: Oblivion | `AnvilHeinrichOakenHallsHouse` | 1,193 entities, 281 meshes, 251 textures; cell XCLL + per-mesh NiLight torches, RT multi-light, captured 2026-11-03 after the lighting overhaul |
 
 `anvil-oaken-halls.png` is the hero shot for the Oblivion tier going
-green. Save the screenshot you captured to this path.
+green.
 
 ## How to reproduce
 
 ```bash
+# Skyrim SE — the Bannered Mare in Whiterun (the `skyrim_se` profile supplies
+# Skyrim.esm and the vanilla mesh / texture / script / sound / voice BSAs)
+cargo run --release -- --game skyrim_se --cell WhiterunBanneredMare
+
+# Oblivion — the Great Forest near Weatherleah. -19,14 is one of the
+# Great Forest's densest SpeedTree cells (~50 TREE refs) with no Oblivion
+# gate nearby; radius 3 gives the canopy depth.
+cargo run --release -- --game oblivion --wrld Tamriel --grid -19,14 --radius 3
+
 # Oblivion — Heinrich Oaken Halls House in Anvil
 cargo run --release -- \
     --esm "$OBLIVION_DATA/Oblivion.esm" \
@@ -34,6 +44,10 @@ cargo run --release -- \
     --bsa "$FNV_DATA/Fallout - Meshes.bsa" \
     --textures-bsa "$FNV_DATA/Fallout - Textures.bsa" \
     --textures-bsa "$FNV_DATA/Fallout - Textures2.bsa"
+
+# FNV — the New Vegas Strip. Radius 2 around 0,0 covers every populated
+# cell, Strip Station through the Lucky 38 (0,1) and the Freeside gate (0,2).
+cargo run --release -- --game fnv --wrld TheStripWorldNew --grid 0,0 --radius 2
 ```
 
 Press **Escape** to capture the mouse, **WASD** + mouse look to fly

@@ -341,7 +341,7 @@ pub enum ConditionFunction {
     /// gate and a script read one implementation.
     IsChild,
     /// `GetTalkedToPC → f32` (#6460): 1.0 when the Run-On actor has ever spoken to the player.
-    /// FO3 / FNV index **50**; the ObScript getter's body.
+    /// FO3 / FNV and Oblivion (#6554) index **50**; the ObScript getter's body.
     GetTalkedToPC,
     /// `GetHasNote(note) → f32` (#6460): 1.0 when the player has the Pip-Boy note `param_1`. FO3 /
     /// FNV index **382**; the ObScript getter's body. Reads no Run-On.
@@ -349,14 +349,14 @@ pub enum ConditionFunction {
     /// `IsInList(form_list) → f32` (#6460): 1.0 when the Run-On actor's base is in `param_1`. FO3 /
     /// FNV index **372**; the ObScript getter's body.
     IsInList,
-    /// `GetLocked → f32` (#6460): 1.0 while the Run-On reference is locked. FO3 / FNV index **5**;
-    /// the ObScript getter's body.
+    /// `GetLocked → f32` (#6460): 1.0 while the Run-On reference is locked. FO3 / FNV and Oblivion
+    /// (#6554) index **5**; the ObScript getter's body.
     GetLocked,
-    /// `GetCurrentTime → f32` (#6460): the game clock's hour (4:30 am = 4.5). FO3 / FNV index
-    /// **18**; the ObScript getter's body. Reads no Run-On.
+    /// `GetCurrentTime → f32` (#6460): the game clock's hour (4:30 am = 4.5). FO3 / FNV and
+    /// Oblivion (#6554) index **18**; the ObScript getter's body. Reads no Run-On.
     GetCurrentTime,
     /// `GetInSameCell(reference) → f32` (#6460): 1.0 when the Run-On reference and `param_1` are in
-    /// the same cell. FO3 / FNV index **32**; the ObScript getter's body.
+    /// the same cell. FO3 / FNV and Oblivion (#6554) index **32**; the ObScript getter's body.
     GetInSameCell,
     /// `GetBaseActorValue(actor_value) → f32` (#6460): the Run-On actor's base (undamaged,
     /// unmodified) value of the actor value `param_1` names, by the GECK enum code. FO3 / FNV index
@@ -368,6 +368,33 @@ pub enum ConditionFunction {
     /// `GetMapMarkerVisible → f32` (#6460): 0 undiscovered, 1 visible, 2 visible and travelable.
     /// FO3 / FNV index **492**; the ObScript getter's body.
     GetMapMarkerVisible,
+    /// `GetDetected(actor) → f32` (#6558): 1.0 when the Run-On actor currently detects `param_1` — the
+    /// engine's sight test. FO3 / FNV index **45**; the ObScript getter's body.
+    GetDetected,
+    /// `IsWeaponOut → f32` (#6558): 1.0 while the Run-On actor has a weapon drawn (or is in combat).
+    /// FO3 / FNV index **101**; the ObScript getter's body.
+    IsWeaponOut,
+    /// `GetSitting → f32` (#6558): the Run-On actor's sitting state (3 seated, 0 not). FO3 / FNV
+    /// index **159**; the ObScript getter's body.
+    GetSitting,
+    /// `GetIsCurrentPackage(package) → f32` (#6558): 1.0 while the Run-On actor runs the `PACK`
+    /// `param_1`. FO3 / FNV index **161**; the ObScript getter's body.
+    GetIsCurrentPackage,
+    /// `HasMagicEffect(base_effect) → f32` (#6558): 1.0 while an `MGEF` `param_1` is active on the Run-On
+    /// reference. FO3 / FNV index **214**; the ObScript getter's body.
+    HasMagicEffect,
+    /// `GetRestrained → f32` (#6558): 1.0 while the Run-On actor is restrained (`SetRestrained`).
+    /// FO3 / FNV index **244**; the ObScript getter's body.
+    GetRestrained,
+    /// `IsSneaking → f32` (#6558): the Run-On actor's sneak state. FO3 / FNV index **286**; the ObScript
+    /// getter's body (0 for everyone: the engine has no sneak stance).
+    IsSneaking,
+    /// `IsInInterior → f32` (#6558): 1.0 when the Run-On reference is in an interior cell. FO3 / FNV
+    /// index **300**; the ObScript getter's body.
+    IsInInterior,
+    /// `IsKiller(actor) → f32` (#6558): 1.0 when `param_1` killed the Run-On actor. FO3 / FNV index
+    /// **409** (Skyrim / FO4 author 409 as `IsKillerObject`, a form list); the ObScript getter's body.
+    IsKiller,
     /// Oblivion's `GetCrimeGold` (CTDA **116**; FO3 / FNV author 116 as
     /// `GetMinorCrimeCount`, Skyrim as `IsIntimidatedbyPlayer`, so it answers
     /// only through [`OBLIVION_DIALECT`]). The Run-On actor's bounty: the
@@ -543,7 +570,8 @@ const ROWS: &[Row] = &[
     Row { func: ConditionFunction::GetQuestCompleted, indices: &[546], name: "GetQuestCompleted", first_param_form_id: true, reads_run_on_entity: false, deterministic: true, reads_context: false, identity_test: false },
     // #6460 — the FO3 / FNV getters the ObScript VM already answers (command id `0x1000 +` the
     // index), bridged to the VM's own bodies in the evaluator (`vm_getter_command`). 365 is the
-    // game-variant pair: IsChild here, `GetPlayerInSEWorld` in `OBLIVION_DIALECT`.
+    // game-variant pair: IsChild here, `GetPlayerInSEWorld` in `OBLIVION_DIALECT`. 50, 5, 18 and 32
+    // are the same functions on Oblivion and answer there too (#6554, `OBLIVION_CONDITION_GETTERS`).
     Row { func: ConditionFunction::IsChild, indices: &[365], name: "IsChild", first_param_form_id: false, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
     Row { func: ConditionFunction::GetTalkedToPC, indices: &[50], name: "GetTalkedToPC", first_param_form_id: false, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
     Row { func: ConditionFunction::GetHasNote, indices: &[382], name: "GetHasNote", first_param_form_id: true, reads_run_on_entity: false, deterministic: true, reads_context: false, identity_test: false },
@@ -554,6 +582,16 @@ const ROWS: &[Row] = &[
     Row { func: ConditionFunction::GetBaseActorValue, indices: &[277], name: "GetBaseActorValue", first_param_form_id: false, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
     Row { func: ConditionFunction::GetDestructionStage, indices: &[471], name: "GetDestructionStage", first_param_form_id: false, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
     Row { func: ConditionFunction::GetMapMarkerVisible, indices: &[492], name: "GetMapMarkerVisible", first_param_form_id: false, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
+    // #6558 — nine more FO3 / FNV getters the VM answers, bridged the same way.
+    Row { func: ConditionFunction::GetDetected, indices: &[45], name: "GetDetected", first_param_form_id: true, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
+    Row { func: ConditionFunction::IsWeaponOut, indices: &[101], name: "IsWeaponOut", first_param_form_id: false, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
+    Row { func: ConditionFunction::GetSitting, indices: &[159], name: "GetSitting", first_param_form_id: false, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
+    Row { func: ConditionFunction::GetIsCurrentPackage, indices: &[161], name: "GetIsCurrentPackage", first_param_form_id: true, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
+    Row { func: ConditionFunction::HasMagicEffect, indices: &[214], name: "HasMagicEffect", first_param_form_id: true, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
+    Row { func: ConditionFunction::GetRestrained, indices: &[244], name: "GetRestrained", first_param_form_id: false, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
+    Row { func: ConditionFunction::IsSneaking, indices: &[286], name: "IsSneaking", first_param_form_id: false, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
+    Row { func: ConditionFunction::IsInInterior, indices: &[300], name: "IsInInterior", first_param_form_id: false, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
+    Row { func: ConditionFunction::IsKiller, indices: &[409], name: "IsKiller", first_param_form_id: true, reads_run_on_entity: true, deterministic: true, reads_context: false, identity_test: false },
     // The Oblivion dialect: these answer to no index of their own (the same
     // numbers are other functions in FO3 / FNV / Skyrim); `OBLIVION_DIALECT`
     // maps the Oblivion index to them. Indices and names from xEdit
@@ -694,7 +732,7 @@ impl ConditionFunction {
 
     /// Every known (non-[`Unknown`](Self::Unknown)) function — the catalog the
     /// debug console enumerates and resolves names against.
-    pub const CATALOG: [ConditionFunction; 88] = [
+    pub const CATALOG: [ConditionFunction; 97] = [
         Self::GetDistance,
         Self::GetQuestVariable,
         Self::GetActorValue,
@@ -770,6 +808,15 @@ impl ConditionFunction {
         Self::GetBaseActorValue,
         Self::GetDestructionStage,
         Self::GetMapMarkerVisible,
+        Self::GetDetected,
+        Self::IsWeaponOut,
+        Self::GetSitting,
+        Self::GetIsCurrentPackage,
+        Self::HasMagicEffect,
+        Self::GetRestrained,
+        Self::IsSneaking,
+        Self::IsInInterior,
+        Self::IsKiller,
         Self::GetCrimeGold,
         Self::CanPayCrimeGold,
         Self::GetPCFame,
@@ -808,8 +855,8 @@ impl ConditionFunction {
 
     /// The ObScript command id (`0x1000 +` the CTDA index) of the script getter whose body answers
     /// this function, for the ones the evaluator bridges to the VM instead of re-implementing
-    /// (#6460: one implementation shared by the dialogue gates and the scripts). `None` for every
-    /// other function.
+    /// (#6460, #6558: one implementation shared by the dialogue gates and the scripts). `None` for
+    /// every other function.
     pub(crate) fn vm_getter_command(self) -> Option<u16> {
         matches!(
             self,
@@ -823,6 +870,15 @@ impl ConditionFunction {
                 | Self::GetBaseActorValue
                 | Self::GetDestructionStage
                 | Self::GetMapMarkerVisible
+                | Self::GetDetected
+                | Self::IsWeaponOut
+                | Self::GetSitting
+                | Self::GetIsCurrentPackage
+                | Self::HasMagicEffect
+                | Self::GetRestrained
+                | Self::IsSneaking
+                | Self::IsInInterior
+                | Self::IsKiller
         )
         .then(|| 0x1000 + self.row().indices[0] as u16)
     }
@@ -1023,6 +1079,15 @@ mod tests {
                 ConditionFunction::GetBaseActorValue |
                 ConditionFunction::GetDestructionStage |
                 ConditionFunction::GetMapMarkerVisible |
+                ConditionFunction::GetDetected |
+                ConditionFunction::IsWeaponOut |
+                ConditionFunction::GetSitting |
+                ConditionFunction::GetIsCurrentPackage |
+                ConditionFunction::HasMagicEffect |
+                ConditionFunction::GetRestrained |
+                ConditionFunction::IsSneaking |
+                ConditionFunction::IsInInterior |
+                ConditionFunction::IsKiller |
                 ConditionFunction::GetCrimeGold |
                 ConditionFunction::CanPayCrimeGold |
                 ConditionFunction::GetPCFame |

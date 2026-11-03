@@ -131,7 +131,7 @@ fn cond(
 /// an uncatalogued function. The same index stays modeled on its own games.
 #[test]
 fn colliding_indices_are_unmodeled_on_the_games_that_reuse_them() {
-    use byroredux_plugin::esm::reader::GameKind::{Fallout3NV, Fallout4, Oblivion, Skyrim, Starfield};
+    use byroredux_plugin::esm::reader::GameKind::{Fallout3NV, Fallout4, Skyrim};
 
     // (index, a game that reuses it, a game the catalog row is right for)
     let cases = [
@@ -2238,6 +2238,37 @@ fn the_obscript_getters_are_catalogued_and_modeled_on_fnv() {
     }
 }
 
+/// #6558 — nine more getters the VM answers (GetDetected 45, IsWeaponOut 101, GetSitting 159,
+/// GetIsCurrentPackage 161, HasMagicEffect 214, GetRestrained 244, IsSneaking 286, IsInInterior 300,
+/// IsKiller 409) are bridged like #6460's: modeled on FO3 / FNV only, read against the Run-On
+/// reference through the VM's own body. 101 and 409 are other functions from Skyrim on; the bridge's
+/// game gate is what keeps the FO3 / FNV body from answering there.
+#[test]
+fn fo3_fnv_package_and_stance_getters_are_bridged_to_the_vm() {
+    use byroredux_plugin::esm::reader::GameKind::{Fallout3NV, Fallout4, Oblivion, Skyrim};
+    for index in [45, 101, 159, 161, 214, 244, 286, 300, 409] {
+        let condition = cond(index, ComparisonOp::Eq, 1.0, false);
+        for game in [Fallout3NV, Oblivion, Skyrim, Fallout4] {
+            let mut world = World::new();
+            crate::register(&mut world);
+            world.insert_resource(crate::ScriptGame(game));
+            assert_eq!(is_modeled(&world, &condition), game == Fallout3NV, "{index} on {game:?}");
+        }
+    }
+
+    const PACKAGE: u32 = 0x0001_6558;
+    let (mut world, actor) = getter_world();
+    world.insert_resource(crate::ActivePackages::default());
+    assert!(evaluate_condition(&cond_params(161, PACKAGE, 0, 0.0), &world, &ctx(actor)));
+    world.resource_mut::<crate::ActivePackages>().0.insert(actor, PACKAGE);
+    assert!(evaluate_condition(&cond_params(161, PACKAGE, 0, 1.0), &world, &ctx(actor)), "running the package");
+    assert!(evaluate_condition(&cond_params(161, PACKAGE + 1, 0, 0.0), &world, &ctx(actor)), "another package");
+
+    assert!(evaluate_condition(&cond_params(244, 0, 0, 0.0), &world, &ctx(actor)));
+    world.insert(actor, crate::ActorControlState { restrained: true, ..Default::default() });
+    assert!(evaluate_condition(&cond_params(244, 0, 0, 1.0), &world, &ctx(actor)), "SetRestrained 1");
+}
+
 /// #6251 — xEdit: 131 is `GetSceneActionPercent` from FO4 on, 431
 /// `GetActiveBoostDuration` on Starfield.
 #[test]
@@ -2604,11 +2635,12 @@ mod global_form_id_index {
     }
 }
 
-/// #6460 — FO3 / FNV CTDA functions the ObScript VM already answers read the VM's own getter body:
-/// modeled on FO3 / FNV only (the games their command ids were aligned with the CTDA indices of),
-/// declined by the fail-closed gates on every other game.
+/// #6460 / #6554 — CTDA functions the ObScript VM already answers read the VM's own getter body:
+/// modeled on FO3 / FNV (the games their command ids were aligned with the CTDA indices of) and, for
+/// the four that are the same function at the same index there, on Oblivion; declined by the
+/// fail-closed gates on every other game.
 #[test]
-fn script_getter_functions_are_modeled_on_fallout_only_and_read_the_vms_body() {
+fn script_getter_functions_are_modeled_where_their_index_aligns_and_read_the_vms_body() {
     use byroredux_plugin::esm::reader::GameKind::{Fallout3NV, Fallout4, Oblivion, Skyrim};
     // IsChild, GetTalkedToPC, GetHasNote, IsInList, GetLocked, GetCurrentTime, GetInSameCell,
     // GetBaseActorValue, GetDestructionStage, GetMapMarkerVisible.
@@ -2619,8 +2651,11 @@ fn script_getter_functions_are_modeled_on_fallout_only_and_read_the_vms_body() {
             let mut world = World::new();
             crate::register(&mut world);
             world.insert_resource(crate::ScriptGame(game));
-            // 365 on Oblivion is the dialect's GetPlayerInSEWorld, modeled in its own right.
-            let expected = game == Fallout3NV || (index == 365 && game == Oblivion);
+            // 365 on Oblivion is the dialect's GetPlayerInSEWorld, modeled in its own right; 50, 5,
+            // 18 and 32 are GetTalkedToPC / GetLocked / GetCurrentTime / GetInSameCell there too
+            // (#6554). 277 is GetBaseActorValue on Oblivion but its code has no AVIF to read.
+            let oblivion_aligned = matches!(index, 365 | 50 | 5 | 18 | 32);
+            let expected = game == Fallout3NV || (oblivion_aligned && game == Oblivion);
             assert_eq!(is_modeled(&world, &condition), expected, "{index} on {game:?}");
         }
     }
@@ -2630,6 +2665,14 @@ fn script_getter_functions_are_modeled_on_fallout_only_and_read_the_vms_body() {
     let mut world = World::new();
     crate::register(&mut world);
     world.insert_resource(crate::ScriptGame(Fallout3NV));
+    crate::script_update_system(&world, 0.0, Some(30.5));
+    let subject = world.spawn();
+    assert!(evaluate_condition(&cond(18, ComparisonOp::Eq, 6.5, false), &world, &ctx(subject)));
+    assert!(!evaluate_condition(&cond(18, ComparisonOp::Eq, 12.0, false), &world, &ctx(subject)));
+    // The same on Oblivion, through Oblivion's own row (#6554).
+    let mut world = World::new();
+    crate::register(&mut world);
+    world.insert_resource(crate::ScriptGame(Oblivion));
     crate::script_update_system(&world, 0.0, Some(30.5));
     let subject = world.spawn();
     assert!(evaluate_condition(&cond(18, ComparisonOp::Eq, 6.5, false), &world, &ctx(subject)));

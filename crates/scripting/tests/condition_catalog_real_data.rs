@@ -4,7 +4,8 @@
 //! never shows. The counts are pinned exactly, so a
 //! catalog that grows moves them down on purpose and one that narrows shows up.
 //!
-//! **Opt-in / `#[ignore]`d** — needs FalloutNV.esm on disk:
+//! **Opt-in / `#[ignore]`d** — needs FalloutNV.esm (and Fallout3.esm, Oblivion.esm,
+//! Skyrim.esm for their legs) on disk:
 //! ```bash
 //! cargo test -p byroredux-scripting --test condition_catalog_real_data -- --ignored
 //! ```
@@ -68,17 +69,19 @@ fn fnv_dialogue_declined_by_unmodeled_conditions() {
     // #6460 then catalogued the ten script getters still missing (IsChild 365,
     // GetTalkedToPC 50, GetHasNote 382, IsInList 372, GetLocked 5, GetCurrentTime 18,
     // GetInSameCell 32, GetBaseActorValue 277, GetDestructionStage 471,
-    // GetMapMarkerVisible 492), bridged to the VM's own bodies: 989 -> 650.
-    assert_eq!(declined_infos, 650, "declined FNV INFOs moved");
+    // GetMapMarkerVisible 492), bridged to the VM's own bodies: 989 -> 650. #6558 bridged nine
+    // more (GetIsCurrentPackage 161, IsInInterior 300, HasMagicEffect 214, GetSitting 159,
+    // GetDetected 45, IsKiller 409, IsWeaponOut 101, GetRestrained 244, IsSneaking 286): 650 -> 641.
+    assert_eq!(declined_infos, 641, "declined FNV INFOs moved");
     // Four quests were declined whole by IsChild (GenericAdultCombat, GenericKids),
     // IsInList (Followers) and GetTalkedToPC (DialogueCrimeKarma) until #6460.
     assert_eq!(declined_quests, 0, "declined FNV quest dialogue gates moved");
     // Objective targets (`QSTA`): 284 of the 772 conditioned ones were declined,
     // 198 only by catalogued-since getters (GetDisabled ×94 among them). What
     // is left is PlayerInRegion (612), GetInCellParam (230) and the like (#6460 took
-    // GetDestructionStage 471 and GetMapMarkerVisible 492: 86 -> 70).
+    // GetDestructionStage 471 and GetMapMarkerVisible 492: 86 -> 70; #6558's nine: 70 -> 69).
     assert_eq!(targets.len(), 772, "conditioned FNV objective targets moved");
-    assert_eq!(declined_targets, 70, "declined FNV objective targets moved");
+    assert_eq!(declined_targets, 69, "declined FNV objective targets moved");
 }
 
 fn fo3_index() -> Option<EsmIndex> {
@@ -89,7 +92,9 @@ fn fo3_index() -> Option<EsmIndex> {
 
 /// #6460 — the FO3 leg: before the script getters were catalogued, `IsInList` (372) and
 /// `GetTalkedToPC` (50) alone declined 21 FO3 quests whole — 5,377 of 22,327 INFOs (24 %). Now no quest
-/// is declined whole and 1,777 INFOs (8 %) are, by the functions still uncatalogued.
+/// is declined whole and 1,777 INFOs (8 %) were, by the functions still uncatalogued. #6558 bridged
+/// nine more getters the VM answers — `GetIsCurrentPackage` (161), the gate on package-context barks,
+/// led them — and 1,202 (5 %) are left, led by `GetScriptVariable` (53).
 #[test]
 #[ignore = "needs Fallout3.esm on disk"]
 fn fo3_dialogue_declined_by_unmodeled_conditions() {
@@ -107,8 +112,53 @@ fn fo3_dialogue_declined_by_unmodeled_conditions() {
     let declined_infos = infos.iter().filter(|info| declines(&info.conditions)).count();
     let declined_quests = index.quests.values().filter(|quest| declines(&quest.dialogue_conditions)).count();
     eprintln!("FO3 declined INFOs {declined_infos} of {}, quests {declined_quests}", infos.len());
-    assert_eq!(declined_infos, 1777, "declined FO3 INFOs moved");
+    assert_eq!(declined_infos, 1202, "declined FO3 INFOs moved");
     assert_eq!(declined_quests, 0, "declined FO3 quest dialogue gates moved");
+}
+
+fn oblivion_index() -> Option<EsmIndex> {
+    let dir = std::env::var(test_paths::OBLIVION_ENV).unwrap_or_else(|_| test_paths::OBLIVION_DEFAULT.into());
+    let bytes = std::fs::read(PathBuf::from(dir).join("Oblivion.esm")).ok()?;
+    byroredux_plugin::esm::parse_esm(&bytes).ok()
+}
+
+/// #6554 — the Oblivion leg: four of the #6460 getters (`GetTalkedToPC` 50, `GetCurrentTime` 18,
+/// `GetInSameCell` 32, `GetLocked` 5) are the same function at the same index on Oblivion, but were
+/// bridged for FO3 / FNV only, so INFOs gated on them alone — the first-meeting `GREETING` lines
+/// (`GetTalkedToPC == 0`) above all — were never selectable.
+#[test]
+#[ignore = "needs Oblivion.esm on disk"]
+fn oblivion_dialogue_declined_by_unmodeled_conditions() {
+    let Some(index) = oblivion_index() else {
+        common::require_or_skip("Oblivion.esm", &"oblivion_index()");
+        eprintln!("SKIP: Oblivion.esm not found");
+        return;
+    };
+    let mut world = World::new();
+    byroredux_scripting::register(&mut world);
+    world.insert_resource(byroredux_scripting::ScriptGame(GameKind::Oblivion));
+    let declines = |conditions: &[Condition]| conditions.iter().any(|c| !is_modeled(&world, c));
+    let infos: Vec<_> = index.dialogues.values().flat_map(|dial| dial.infos.iter()).collect();
+    let declined_infos = infos.iter().filter(|info| declines(&info.conditions)).count();
+    let greetings: Vec<_> = index
+        .dialogues
+        .values()
+        .filter(|dial| dial.editor_id.eq_ignore_ascii_case("GREETING"))
+        .flat_map(|dial| dial.infos.iter())
+        .collect();
+    let declined_greetings = greetings.iter().filter(|info| declines(&info.conditions)).count();
+    eprintln!(
+        "Oblivion declined INFOs {declined_infos} of {}, GREETING {declined_greetings} of {}",
+        infos.len(),
+        greetings.len()
+    );
+    assert_eq!(infos.len(), 19_278, "Oblivion's INFO count moved");
+    // 3,172 before #6554; 533 of those were declined only by the four getters. What is left is led
+    // by GetDisposition (76) and GetScriptVariable (53).
+    assert_eq!(declined_infos, 2_639, "declined Oblivion INFOs moved");
+    // Every Oblivion activation opens through GREETING (#5367): 941 of its INFOs were declined.
+    assert_eq!(greetings.len(), 3_743, "Oblivion's GREETING INFO count moved");
+    assert_eq!(declined_greetings, 450, "declined Oblivion GREETING INFOs moved");
 }
 
 fn skyrim_index() -> Option<EsmIndex> {
