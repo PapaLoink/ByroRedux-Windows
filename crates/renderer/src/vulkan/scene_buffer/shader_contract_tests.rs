@@ -3255,7 +3255,7 @@ fn material_kind_multi_layer_parallax_has_no_raw_literal_call_sites() {
         (
             "context/frame_params.rs",
             include_str!("../context/frame_params.rs"),
-            "cmd.material_kind == MATERIAL_KIND_MULTI_LAYER_PARALLAX",
+            "material_kind == MATERIAL_KIND_MULTI_LAYER_PARALLAX",
         ),
     ];
     for (name, src, needle) in cases {

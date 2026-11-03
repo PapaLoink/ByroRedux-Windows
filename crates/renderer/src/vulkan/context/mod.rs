@@ -1356,6 +1356,13 @@ impl VulkanContext {
         if let Some(&pipe) = self.blend_pipeline_cache.get(&key) {
             return Ok(pipe);
         }
+        // Windows GPU driver compilation may block the render thread for
+        // minutes. Log the requested variant BEFORE entering vkCreateGraphicsPipelines,
+        // otherwise a hung NVIDIA compiler leaves no diagnostic key.
+        log::warn!(
+            "Blend pipeline compile BEGIN src={src} dst={dst} wireframe={wireframe} preserve_opaque_gbuffer={preserve_opaque_gbuffer}"
+        );
+        let started_at = std::time::Instant::now();
         let pipe = pipeline::create_blend_pipeline(
             pipeline::BlendPipelineCtx {
                 device: &self.device,
@@ -1370,7 +1377,25 @@ impl VulkanContext {
             preserve_opaque_gbuffer,
         )?;
         self.blend_pipeline_cache.insert(key, pipe);
+        log::info!(
+            "Blend pipeline compile END src={src} dst={dst} wireframe={wireframe} preserve_opaque_gbuffer={preserve_opaque_gbuffer}: {:.3} ms",
+            started_at.elapsed().as_secs_f64() * 1000.0,
+        );
+        // Persist each successful variant, including during loading. A later
+        // slow driver compilation or interrupted session must not lose it.
+        helpers::save_pipeline_cache_if_grown(&self.device, self.pipeline_cache);
         Ok(pipe)
+    }
+
+    /// Prepare loaded content before gameplay, independently of camera visibility
+    /// or whether a particle emitter has emitted its first particle yet.
+    /// Keys are (authored src, authored dst, wireframe, preserve opaque G-buffer).
+    /// Failure propagates to the loading caller rather than substituting opaque.
+    pub fn prepare_blend_pipelines(&mut self, keys: &[(u8, u8, bool, bool)]) -> Result<()> {
+        for &(src, dst, wireframe, preserve_opaque_gbuffer) in keys {
+            self.get_or_create_blend_pipeline(src, dst, wireframe, preserve_opaque_gbuffer)?;
+        }
+        Ok(())
     }
 
     /// Get a handle for requesting screenshots from outside the render loop.
@@ -1580,7 +1605,7 @@ mod egui_pending_output_tests {
 // Method implementations split across submodules:
 mod draw;
 mod frame_params;
-pub use frame_params::{is_refractive_glass, FrameInputs, UnderwaterView};
+pub use frame_params::{is_refractive_glass, is_refractive_material, FrameInputs, UnderwaterView};
 mod assemble_camera_and_lights;
 mod begin_frame_recording;
 mod build_and_upload_instances;

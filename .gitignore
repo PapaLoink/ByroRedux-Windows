@@ -1,6 +1,32 @@
-/target
+# Cargo output, including standalone crates and tools built in place.
+target/
 **/*.rs.bk
 *.pdb
+
+# Native Windows/MSVC and C/C++ compiler/linker output.
+*.exe
+*.dll
+*.obj
+*.o
+*.lib
+*.a
+*.ilk
+*.exp
+*.pch
+*.idb
+*.ipch
+*.dmp
+
+# Generated CMake/Ninja build metadata.
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+build.ninja
+.ninja_deps
+.ninja_log
+compile_commands.json
+
+# Keep build.rs source scripts and intentionally versioned .spv shaders visible.
 .env
 
 # Third-party dev tools (cloned locally, not tracked) — except our workspace tools

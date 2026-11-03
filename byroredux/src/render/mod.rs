@@ -1,5 +1,8 @@
 //! Per-frame render data collection from ECS queries.
 
+mod blend_preparation;
+pub(crate) use blend_preparation::prepare_loaded_blend_pipelines;
+
 use byroredux_core::ecs::{
     resources::SkinSlotPool, ActiveCamera, EntityId, Material, ParticleEmitter, Transform, World,
 };

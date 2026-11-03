@@ -31,6 +31,11 @@ extracts fine — that framing was a stale premise, closed by #699.)
 
 ## Rendering
 
+**Native Windows Oblivion verification (3 November 2026):** startup preparation
+of loaded blend states passed a 3,600-frame original-interior camera run and a
+warm interactive restart. Later-loaded blend states and whole-game stability
+remain unverified; see [evidence and limits](engine/windows-blend-pipeline-preparation.md).
+
 | Feature | Status | Notes |
 |---|---|---|
 | **RT shadows** | ✓ All games | Streaming WRS, 16 reservoirs/fragment, weight clamp 64× |

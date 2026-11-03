@@ -920,6 +920,14 @@ impl App {
     }
 }
 
+/// A duplicate Win32/winit Resized event must not tear down a live Vulkan
+/// swapchain. Recreating it waits for device idle and rebuilds all
+/// render-sized targets, and repeated identical events cause visible stalls.
+/// Out-of-date presentation is handled separately by render_one_frame.
+fn should_recreate_for_window_resize(current: [u32; 2], requested: [u32; 2]) -> bool {
+    requested[0] > 0 && requested[1] > 0 && current != requested
+}
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -1095,6 +1103,16 @@ impl ApplicationHandler for App {
                 // M41.0 Phase 1b.x — Prime the scene's transform state
                 // BEFORE the event loop starts.
                 self.scheduler.run(&self.world, 0.0);
+                if let Err(e) = crate::render::prepare_loaded_blend_pipelines(
+                    &self.world,
+                    self.renderer.as_mut().unwrap(),
+                ) {
+                    log::error!("Loaded-scene blend pipeline preparation failed: {e:#}");
+                    event_loop.exit();
+                    return;
+                }
+                // Loading and shader compilation are not a gameplay time step.
+                self.last_frame = Instant::now();
                 self.renderer.as_ref().unwrap().log_memory_usage();
                 log::info!("Engine ready — entering game loop");
             }
@@ -1282,9 +1300,19 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 if let Some(ref mut ctx) = self.renderer {
                     if size.width > 0 && size.height > 0 {
-                        if let Err(e) = ctx.recreate_swapchain([size.width, size.height]) {
-                            log::error!("Swapchain recreate failed: {e:#}");
-                            event_loop.exit();
+                        // winit may emit duplicate same-size resize events on
+                        // Windows (including startup and focus changes).
+                        // Avoid needless device_wait_idle + full pipeline rebuilds.
+                        // Actual OUT_OF_DATE presentation is recovered separately.
+                        let output = ctx.frame_extents.output;
+                        if should_recreate_for_window_resize(
+                            [output.width, output.height],
+                            [size.width, size.height],
+                        ) {
+                            if let Err(e) = ctx.recreate_swapchain([size.width, size.height]) {
+                                log::error!("Swapchain recreate failed: {e:#}");
+                                event_loop.exit();
+                            }
                         }
                         // Update camera aspect ratio.
                         if let Some(active) = self.world.try_resource::<ActiveCamera>() {
@@ -2421,5 +2449,27 @@ mod egui_consumed_gate_tests {
             )),
             "the predicate's conjunction changed — re-check the truth-table test"
         );
+    }
+}
+
+
+#[cfg(test)]
+mod duplicate_window_resize_tests {
+    use super::should_recreate_for_window_resize;
+
+    #[test]
+    fn repeated_windows_resize_to_same_extent_is_a_noop() {
+        assert!(!should_recreate_for_window_resize([1280, 720], [1280, 720]));
+    }
+
+    #[test]
+    fn new_nonzero_extent_requires_rebuild() {
+        assert!(should_recreate_for_window_resize([1280, 720], [1920, 1080]));
+    }
+
+    #[test]
+    fn minimized_zero_extent_does_not_rebuild() {
+        assert!(!should_recreate_for_window_resize([1280, 720], [0, 0]));
+        assert!(!should_recreate_for_window_resize([1280, 720], [0, 720]));
     }
 }

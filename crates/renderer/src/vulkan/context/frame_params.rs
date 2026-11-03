@@ -1809,12 +1809,15 @@ pub(super) fn is_caustic_source(cmd: &DrawCommand) -> bool {
 /// Public for `byroredux::render::draw_sort_key` (#4192), which must cluster
 /// on the same pipeline axis `PipelineKey::Blended` builds from this.
 pub fn is_refractive_glass(cmd: &DrawCommand) -> bool {
-    if cmd.material_kind == MATERIAL_KIND_GLASS {
+    is_refractive_material(cmd.material_kind, cmd.multi_layer_refraction_scale)
+}
+
+/// Shared by loaded-scene pipeline preparation and draw batching.
+pub fn is_refractive_material(material_kind: u32, multi_layer_refraction_scale: f32) -> bool {
+    if material_kind == MATERIAL_KIND_GLASS {
         return true;
     }
-    if cmd.material_kind == MATERIAL_KIND_MULTI_LAYER_PARALLAX
-        && cmd.multi_layer_refraction_scale > 0.0
-    {
+    if material_kind == MATERIAL_KIND_MULTI_LAYER_PARALLAX && multi_layer_refraction_scale > 0.0 {
         return true;
     }
     false
