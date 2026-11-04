@@ -93,8 +93,9 @@ fn parse_selector(src: &str) -> Selector<'_> {
             return Selector::Child(name.trim());
         }
     }
-    // `screen`/`strings` also appear without parens in some menus.
+    // Bare selectors occur in shipped menus (Oblivion VideoMenu uses `parent`).
     match trimmed {
+        "parent" => Selector::Parent,
         "screen" => Selector::Pseudo("screen"),
         "strings" => Selector::Pseudo("strings"),
         _ => Selector::Named(trimmed),
@@ -176,6 +177,7 @@ impl<'a> EvalState<'a> {
         }
         let raw = self.doc.tiles[tile].traits.get(&key).cloned();
         let value = match raw {
+            None if key == "childcount" => Scalar::Num(self.doc.tiles[tile].children.len() as f32),
             None if self.doc.tiles[tile].kind == crate::parse::TileKind::Text && self.fonts.is_some()
                 && matches!(key.as_str(), "width" | "height" | "font") => {
                 if key == "font" { Scalar::Num(1.0) } else {

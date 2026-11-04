@@ -704,6 +704,7 @@ fn fixture() -> (World, byroredux_core::ecs::EntityId) {
                 InventoryItemDefinition {
                     name: "Iron Armor".to_owned(),
                     category: "Armor",
+                    icon_path: String::new(),
                     value: 125,
                     weight: 30.0,
                     details: "Armor rating 25.0".to_owned(),
@@ -718,6 +719,7 @@ fn fixture() -> (World, byroredux_core::ecs::EntityId) {
                 InventoryItemDefinition {
                     name: "Iron Arrow".to_owned(),
                     category: "Ammo",
+                    icon_path: String::new(),
                     value: 1,
                     weight: 0.0,
                     details: "Damage 8.0".to_owned(),
@@ -732,6 +734,7 @@ fn fixture() -> (World, byroredux_core::ecs::EntityId) {
                 InventoryItemDefinition {
                     name: "Iron Sword".to_owned(),
                     category: "Weapon",
+                    icon_path: String::new(),
                     value: 100,
                     weight: 8.0,
                     details: "Damage 12".to_owned(),
@@ -2597,6 +2600,7 @@ fn pickup_removes_the_taken_item_collision_bodies() {
         InventoryItemDefinition {
             name: "Bottle".to_string(),
             category: "Misc",
+            icon_path: String::new(),
             value: 1,
             weight: 0.1,
             details: String::new(),
@@ -2841,6 +2845,7 @@ fn an_improved_weapons_instance_adds_its_quality_bonus_to_the_equipped_damage() 
             InventoryItemDefinition {
                 name: "Steel Sword".to_owned(),
                 category: "Weapon",
+                icon_path: String::new(),
                 value: 45,
                 weight: 10.0,
                 details: String::new(),
@@ -2886,6 +2891,7 @@ fn the_inventory_snapshot_shows_an_improved_weapons_quality_and_value() {
             InventoryItemDefinition {
                 name: "Steel Sword".to_owned(),
                 category: "Weapon",
+                icon_path: String::new(),
                 value: 45,
                 weight: 10.0,
                 details: "Damage 8".to_owned(),

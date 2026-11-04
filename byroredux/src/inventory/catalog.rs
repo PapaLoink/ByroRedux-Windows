@@ -7,6 +7,8 @@ use super::*;
 pub(crate) struct InventoryItemDefinition {
     pub(crate) name: String,
     pub(crate) category: &'static str,
+    /// Original record's ICON subrecord, read from the installed BSA.
+    pub(crate) icon_path: String,
     pub(crate) value: u32,
     pub(crate) weight: f32,
     pub(crate) details: String,
@@ -47,6 +49,7 @@ impl InventoryCatalog {
                     InventoryItemDefinition {
                         name: format!("Item {base:X}"),
                         category: "Misc",
+                        icon_path: String::new(),
                         value: 1,
                         weight: 0.1,
                         details: String::new(),
@@ -453,6 +456,7 @@ pub(super) fn caster_effects(
 /// Rebuild item presentation metadata and the base player's starting loadout
 /// from the resolved plugin index.
 pub(crate) fn install_catalog(world: &mut World, index: &EsmIndex) {
+    crate::oblivion_secondary_menu::install_index(world, index);
     let mut restorations: FxHashMap<_, _> = index
         .items
         .keys()
@@ -518,6 +522,7 @@ pub(crate) fn install_catalog(world: &mut World, index: &EsmIndex) {
                 InventoryItemDefinition {
                     name,
                     category,
+                    icon_path: item.common.icon_path.clone(),
                     value: item.common.value,
                     weight: item.common.weight.max(0.0),
                     details,

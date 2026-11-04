@@ -15,6 +15,7 @@ mod cli;
 mod registries;
 mod schedule;
 mod world;
+mod logging;
 
 pub(crate) use cli::profile_archive_args;
 use cli::{expand_boot_request, expand_game_profile_args};
@@ -74,6 +75,7 @@ pub(crate) const SOURCES: &str = concat!(
     include_str!("schedule/late.rs"),
     include_str!("registries.rs"),
     include_str!("cli.rs"),
+    include_str!("logging.rs"),
     // Last: `build_scheduler` is an 18-line orchestrator that registers
     // nothing itself, and the four test modules sharing its file must trail
     // every registration they read.
@@ -367,7 +369,7 @@ pub(crate) fn run() -> Result<()> {
             std::env::var("RUST_LOG").unwrap_or("debug".into()),
         );
     }
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    logging::builder().parse_env(env_logger::Env::default()).init();
     init_tracing();
 
     if let Some(selection) = bench_selection {

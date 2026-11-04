@@ -368,12 +368,32 @@ impl App {
         self.objective_hud_cache
             .give_back(snapshot.objectives.take());
 
+        let inventory_changed = !outputs.inventory_actions.is_empty();
+        let spell_selected = outputs.selected_spell.is_some();
+        let menu_settings_changed = !outputs.setting_changes.is_empty();
         let (resume_game, quit_game) = apply_debug_ui_outputs(
             &mut self.world,
             outputs,
             &mut self.debug_ui_refresh_entities,
             self.debug_ui.as_mut(),
         );
+        let scroll_changed = self.debug_ui.as_mut()
+            .is_some_and(|ui| ui.take_original_inventory_refresh());
+        if (inventory_changed || scroll_changed) && self.debug_ui.as_ref()
+            .is_some_and(byroredux_debug_ui::DebugUiState::inventory_menu_visible)
+        {
+            self.refresh_original_inventory_art();
+        }
+        if spell_selected && self.debug_ui.as_ref()
+            .is_some_and(byroredux_debug_ui::DebugUiState::inventory_menu_visible)
+        {
+            self.refresh_original_secondary_art();
+        }
+        if menu_settings_changed && self.debug_ui.as_ref()
+            .is_some_and(byroredux_debug_ui::DebugUiState::game_menu_visible)
+        {
+            self.refresh_original_options_art();
+        }
         if resume_game {
             self.resume_from_game_menu();
         }

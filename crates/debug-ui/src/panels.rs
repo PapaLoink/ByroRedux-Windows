@@ -184,6 +184,8 @@ pub struct InventoryItemView {
     pub form_id: u32,
     pub name: String,
     pub category: &'static str,
+    /// Original ICON record asset path, not an engine-generated glyph.
+    pub icon_path: String,
     pub details: String,
     pub count: u32,
     pub value: u32,
@@ -460,6 +462,11 @@ pub struct PanelOutputs {
     pub quicksave: bool,
     /// Load the most recently written slot through the canonical load queue.
     pub quickload: bool,
+    /// Original Oblivion Save/Load MenuXml picked a specific engine save slot.
+    pub save_slot: Option<u32>,
+    pub load_slot: Option<u32>,
+    /// Select a spell from the original Gamebryo magic-list template.
+    pub selected_spell: Option<u32>,
     /// Perform the same orderly shutdown as the window close button.
     pub quit_game: bool,
 }
@@ -476,6 +483,53 @@ pub enum GameMenuPage {
     Crafting,
 }
 
+/// An authored original-game hit region in the same coordinate system as its
+/// MenuXml raster. Names are taken from the installed XML, not redefined UI art.
+#[derive(Debug, Clone)]
+pub struct GameMenuHitTarget {
+    pub id: i32,
+    pub name: String,
+    pub rect: [f32; 4],
+}
+
+/// Uncompressed, independently rendered original menu artwork. The engine
+/// sends these pixels to egui without writing any Bethesda bytes to disk.
+#[derive(Debug, Clone)]
+pub struct GameMenuArt {
+    pub width: usize,
+    pub height: usize,
+    pub rgba: Vec<u8>,
+    pub targets: Vec<GameMenuHitTarget>,
+}
+
+#[derive(Clone)]
+pub(crate) struct GameMenuPicture {
+    pub texture: egui::TextureHandle,
+    pub width: usize,
+    pub height: usize,
+    pub targets: Vec<GameMenuHitTarget>,
+}
+
+impl std::fmt::Debug for GameMenuPicture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GameMenuPicture")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("targets", &self.targets)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct OriginalGameMenuArt {
+    pub pause: GameMenuPicture,
+    pub inventory: Vec<GameMenuPicture>,
+    pub magic: Vec<GameMenuPicture>,
+    pub stats: Vec<GameMenuPicture>,
+    pub map: Vec<GameMenuPicture>,
+    pub options: Vec<GameMenuPicture>,
+}
+
 /// Persistent navigation state for the player-facing native menu.
 #[derive(Debug, Clone, Default)]
 pub struct GameMenuState {
@@ -484,6 +538,13 @@ pub struct GameMenuState {
     pub selected_section: String,
     pub selected_inventory_category: String,
     pub selected_inventory_index: Option<u32>,
+    pub original_main_section: usize,
+    pub original_secondary_tabs: [usize; 3],
+    pub original_inventory_tab: usize,
+    pub original_inventory_scroll: [usize; 5],
+    pub original_inventory_needs_refresh: bool,
+    pub original_options_tab: usize,
+    pub(crate) original_art: Option<OriginalGameMenuArt>,
 }
 
 /// Player-facing pause/settings surface. This deliberately consumes the same
@@ -495,6 +556,12 @@ pub fn draw_game_menu(
     state: &mut GameMenuState,
     outputs: &mut PanelOutputs,
 ) {
+    if let Some(art) = state.original_art.clone() {
+        if matches!(state.page, GameMenuPage::Pause | GameMenuPage::Inventory | GameMenuPage::Settings) {
+            draw_original_oblivion_game_menu(ctx, snapshot, state, outputs, &art);
+            return;
+        }
+    }
     let viewport = ctx.content_rect();
     egui::Area::new(Id::new("game_menu_backdrop"))
         .order(Order::Foreground)
@@ -554,6 +621,285 @@ pub fn draw_game_menu(
             }
             GameMenuPage::Barter => draw_barter_page(ui, snapshot.barter.as_ref(), state, outputs),
             GameMenuPage::Crafting => draw_crafting_page(ui, snapshot.crafting.as_ref(), state, outputs),
+        });
+}
+
+fn original_oblivion_item_tab(category: &str) -> usize {
+    match category {
+        "Weapon" | "Ammo" => 0,
+        "Armor" | "Apparel" | "Clothing" => 1,
+        "Ingredient" | "Aid" | "Apparatus" => 2,
+        "Book" | "Scroll" | "Note" => 3,
+        _ => 4,
+    }
+}
+
+// Original Oblivion menus use only MenuXml-drawn pixels. egui supplies
+// invisible hit regions; it never draws a second engine window on these pages.
+fn draw_original_oblivion_game_menu(
+    ctx: &Context,
+    snapshot: &PanelSnapshot,
+    state: &mut GameMenuState,
+    outputs: &mut PanelOutputs,
+    art: &OriginalGameMenuArt,
+) {
+    let viewport = ctx.content_rect();
+    if state.page == GameMenuPage::Inventory {
+        // Source menu-manager section keys; the UI image is still only the
+        // original MenuXml and its genuine icon atlas.
+        for (key, section) in [
+            (egui::Key::Num1, 0), (egui::Key::Num2, 1),
+            (egui::Key::Num3, 2), (egui::Key::Num4, 3),
+        ] {
+            if ctx.input(|i| i.key_pressed(key)) {
+                state.original_main_section = section;
+            }
+        }
+        let delta = ctx.input(|input| input.smooth_scroll_delta.y);
+        if delta.abs() >= 1.0 && state.original_main_section == 0 {
+            let tab = state.original_inventory_tab.min(4);
+            let count = snapshot.inventory.as_ref().map_or(0, |inventory| inventory.items
+                .iter().filter(|item| original_oblivion_item_tab(item.category) == tab).count());
+            let maximum = count.saturating_sub(6);
+            let old = state.original_inventory_scroll[tab];
+            let next = if delta < 0.0 {
+                (old + 1).min(maximum)
+            } else {
+                old.saturating_sub(1)
+            };
+            if next != old {
+                state.original_inventory_scroll[tab] = next;
+                state.original_inventory_needs_refresh = true;
+            }
+        }
+    }
+    let picture = match state.page {
+        GameMenuPage::Pause => &art.pause,
+        GameMenuPage::Inventory => match state.original_main_section {
+            1 => art.magic.get(state.original_secondary_tabs[0].min(4))
+                .unwrap_or(&art.inventory[state.original_inventory_tab.min(4)]),
+            2 => art.stats.get(state.original_secondary_tabs[1].min(4))
+                .unwrap_or(&art.inventory[state.original_inventory_tab.min(4)]),
+            3 => art.map.get(state.original_secondary_tabs[2].min(4))
+                .unwrap_or(&art.inventory[state.original_inventory_tab.min(4)]),
+            _ => &art.inventory[state.original_inventory_tab.min(4)],
+        },
+        GameMenuPage::Settings => &art.options[state.original_options_tab.min(6)],
+        _ => return,
+    };
+    egui::Area::new(Id::new("oblivion_original_menu"))
+        .order(Order::Foreground)
+        .fixed_pos(viewport.min)
+        .interactable(true)
+        .show(ctx, |ui| {
+            ui.set_min_size(viewport.size());
+            // The backdrop and parchment come from the original game XML.
+            ui.painter().image(
+                picture.texture.id(),
+                viewport,
+                egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+            let sx = viewport.width() / picture.width as f32;
+            let sy = viewport.height() / picture.height as f32;
+            // Do not install input hit regions for the original background,
+            // unused placeholders, or generic texture surfaces.
+            for target in &picture.targets {
+                let actionable = match state.page {
+                    GameMenuPage::Pause => target.name.starts_with("pause_") && target.name.ends_with("_button"),
+                    GameMenuPage::Inventory => target.name.starts_with("byro_section_")
+                        || match state.original_main_section {
+                            1 => target.name.starts_with("magic_tabs_p")
+                                || target.name.starts_with("byro_spell_"),
+                            2 => target.name.starts_with("stat_tabs_p"),
+                            3 => target.name.starts_with("map_tabs_p"),
+                            _ => target.name.starts_with("inv_tabs_p")
+                                || target.name.starts_with("byro_item_"),
+                        },
+                    GameMenuPage::Settings => target.name.starts_with("options_")
+                        || target.name.ends_with("_return_button")
+                        || matches!(target.name.as_str(),
+                            "gameplay_crosshair_button" | "controls_invert_y_button"
+                            | "controls_sensitivity_slider" | "save_button_return"
+                            | "byro_save_slot" | "byro_load_slot")
+                        || target.name.starts_with("byro_save_new_")
+                        || target.name.starts_with("byro_save_slot_")
+                        || target.name.starts_with("byro_load_slot_"),
+                    _ => false,
+                };
+                if !actionable { continue; }
+                let [x, y, w, h] = target.rect;
+                if w <= 0.0 || h <= 0.0 { continue; }
+                let rect = egui::Rect::from_min_size(
+                    viewport.min + egui::vec2(x * sx, y * sy),
+                    egui::vec2(w * sx, h * sy),
+                );
+                let response = ui.interact(
+                    rect, Id::new(("original_oblivion_target", state.page as u8, target.id, &target.name)),
+                    egui::Sense::click(),
+                );
+                if response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
+                if state.page == GameMenuPage::Inventory {
+                    if let Some(section) = target.name.strip_prefix("byro_section_")
+                        .and_then(|s| s.parse::<usize>().ok())
+                    {
+                        if section < 4 && response.clicked() {
+                            state.original_main_section = section;
+                        }
+                    } else if let Some(form_id) = target.name.strip_prefix("byro_spell_")
+                        .and_then(|s| s.parse::<u32>().ok())
+                    {
+                        if response.clicked() {
+                            outputs.selected_spell = Some(form_id);
+                        }
+                    } else if let Some(tab) = target.name.strip_prefix("magic_tabs_p")
+                        .and_then(|s| s.parse::<usize>().ok())
+                    {
+                        if (1..=5).contains(&tab) && response.clicked() {
+                            state.original_secondary_tabs[0] = tab - 1;
+                        }
+                    } else if let Some(tab) = target.name.strip_prefix("stat_tabs_p")
+                        .and_then(|s| s.parse::<usize>().ok())
+                    {
+                        if (1..=5).contains(&tab) && response.clicked() {
+                            state.original_secondary_tabs[1] = tab - 1;
+                        }
+                    } else if let Some(tab) = target.name.strip_prefix("map_tabs_p")
+                        .and_then(|s| s.parse::<usize>().ok())
+                    {
+                        if (1..=5).contains(&tab) && response.clicked() {
+                            state.original_secondary_tabs[2] = tab - 1;
+                        }
+                    } else if let Some(tab) = target.name.strip_prefix("inv_tabs_p")
+                        .and_then(|s| s.parse::<usize>().ok())
+                    {
+                        if (1..=5).contains(&tab) && response.clicked() {
+                            state.original_inventory_tab = tab - 1;
+                            state.selected_inventory_index = None;
+                        }
+                    } else if let Some(index) = target.name.strip_prefix("byro_item_")
+                        .and_then(|s| s.parse::<u32>().ok())
+                    {
+                        if let Some(item) = snapshot.inventory.as_ref()
+                            .and_then(|inv| inv.items.iter().find(|item| item.index == index))
+                        {
+                            if response.clicked_by(egui::PointerButton::Secondary)
+                                || (response.clicked() && ui.input(|i| i.modifiers.shift))
+                            {
+                                if !item.equipped {
+                                    outputs.inventory_actions.push(InventoryAction::Drop {
+                                        index, form_id: item.form_id,
+                                    });
+                                }
+                            } else if response.clicked() {
+                                state.selected_inventory_index = Some(index);
+                                if item.equippable {
+                                    outputs.inventory_actions.push(InventoryAction::ToggleEquip { index });
+                                } else if item.consumable {
+                                    outputs.inventory_actions.push(InventoryAction::Consume {
+                                        index, form_id: item.form_id,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } else if target.name == "controls_sensitivity_slider"
+                    && (response.clicked() || response.dragged())
+                {
+                    if let Some(entry) = snapshot.settings.iter().find(|entry|
+                        entry.id == "controls.mouse_sensitivity")
+                    {
+                        if let SettingControl::Slider { min, max, step, .. } = &entry.control {
+                            let pointer_x = ui.input(|i| i.pointer.interact_pos())
+                                .unwrap_or(rect.center()).x;
+                            let fraction = ((pointer_x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+                            let value = (min + ((max - min) * fraction / step).round() * step)
+                                .clamp(*min, *max);
+                            outputs.setting_changes.push(SettingChange::new(
+                                &entry.id, SettingValue::Number(value),
+                            ));
+                        }
+                    }
+                } else if state.page == GameMenuPage::Settings
+                    && target.name.starts_with("byro_")
+                {
+                    if let Some(slot) = target.name.strip_prefix("byro_save_new_")
+                        .and_then(|v| v.parse::<u32>().ok())
+                    {
+                        if response.clicked() {
+                            outputs.save_slot = Some(slot);
+                            outputs.resume_game = true;
+                        }
+                    } else if let Some(slot) = target.name.strip_prefix("byro_save_slot_")
+                        .and_then(|v| v.parse::<u32>().ok())
+                    {
+                        // Overwrites require an intentional double-click;
+                        // a stray single press never destroys an old save.
+                        if response.double_clicked() {
+                            outputs.save_slot = Some(slot);
+                            outputs.resume_game = true;
+                        }
+                    } else if let Some(slot) = target.name.strip_prefix("byro_load_slot_")
+                        .and_then(|v| v.parse::<u32>().ok())
+                    {
+                        if response.clicked() {
+                            outputs.load_slot = Some(slot);
+                            outputs.resume_game = true;
+                        }
+                    }
+                } else if response.clicked() {
+                    match target.name.as_str() {
+                        "pause_return_button" => outputs.resume_game = true,
+                        "pause_save_button" => {
+                            state.page = GameMenuPage::Settings;
+                            state.original_options_tab = 5;
+                        }
+                        "pause_load_button" => {
+                            state.page = GameMenuPage::Settings;
+                            state.original_options_tab = 6;
+                        }
+                        "pause_options_button" => {
+                            state.page = GameMenuPage::Settings;
+                            state.original_options_tab = 0;
+                        }
+                        "pause_quit_button" => outputs.quit_game = true,
+                        "options_return_button" | "save_button_return"
+                            | "load_return_button" => state.page = GameMenuPage::Pause,
+                        "byro_save_slot" => outputs.quicksave = true,
+                        "byro_load_slot" => outputs.quickload = true,
+                        "options_gameplay_button" => state.original_options_tab = 1,
+                        "options_video_button" => state.original_options_tab = 2,
+                        "options_audio_button" => state.original_options_tab = 3,
+                        "options_controls_button" => state.original_options_tab = 4,
+                        "gameplay_return_button" | "video_return_button"
+                            | "audio_return_button" | "controls_return_button"
+                            | "controls_return_button_2" => state.original_options_tab = 0,
+                        "controls_invert_y_button" => {
+                            if let Some(entry) = snapshot.settings.iter().find(|s|
+                                s.id == "controls.invert_y")
+                            {
+                                if let SettingValue::Bool(current) = entry.value {
+                                    outputs.setting_changes.push(SettingChange::new(
+                                        &entry.id, SettingValue::Bool(!current),
+                                    ));
+                                }
+                            }
+                        }
+                        "gameplay_crosshair_button" => {
+                            if let Some(entry) = snapshot.settings.iter().find(|s|
+                                s.id == byroredux_core::settings::builtin::SHOW_CROSSHAIR_SETTING_ID)
+                            {
+                                if let byroredux_core::settings::SettingValue::Bool(current) = entry.value {
+                                    outputs.setting_changes.push(SettingChange::new(
+                                        &entry.id, SettingValue::Bool(!current),
+                                    ));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
         });
 }
 
@@ -2234,6 +2580,74 @@ mod tests {
     }
 
     #[test]
+    fn original_oblivion_pause_is_menu_art_not_an_engine_window() {
+        let ctx = Context::default();
+        let texture = ctx.load_texture(
+            "original-test", egui::ColorImage::new([1, 1], vec![Color32::WHITE]),
+            egui::TextureOptions::LINEAR,
+        );
+        let pause = GameMenuPicture {
+            texture: texture.clone(),
+            width: 800,
+            height: 600,
+            targets: vec![GameMenuHitTarget {
+                id: 3, name: "pause_return_button".into(),
+                rect: [300.0, 200.0, 180.0, 40.0],
+            }],
+        };
+        let plain = GameMenuPicture {
+            texture, width: 800, height: 600, targets: Vec::new(),
+        };
+        let mut state = GameMenuState {
+            visible: true,
+            original_art: Some(OriginalGameMenuArt {
+                pause, inventory: vec![plain.clone(); 5], magic: vec![],
+                stats: vec![], map: vec![], options: vec![plain; 7],
+            }),
+            ..Default::default()
+        };
+        let raw = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO, egui::vec2(800.0, 600.0),
+            )),
+            ..Default::default()
+        };
+        let mut outputs = PanelOutputs::default();
+        ctx.begin_pass(raw());
+        draw_game_menu(&ctx, &PanelSnapshot::default(), &mut state, &mut outputs);
+        let _ = end_pass(&ctx);
+
+        ctx.begin_pass(raw());
+        draw_game_menu(&ctx, &PanelSnapshot::default(), &mut state, &mut outputs);
+        let frame = end_pass(&ctx);
+        assert!(!frame.shapes.is_empty(), "original texture must be drawn");
+        assert!(!frame.shapes.iter().any(|shape|
+            matches!(&shape.shape, egui::Shape::Text(_))),
+            "the Oblivion path must not draw engine menu labels"
+        );
+
+        ctx.begin_pass(egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(egui::pos2(350.0, 220.0)),
+                egui::Event::PointerButton {
+                    pos: egui::pos2(350.0, 220.0),
+                    button: egui::PointerButton::Primary,
+                    pressed: true, modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: egui::pos2(350.0, 220.0),
+                    button: egui::PointerButton::Primary,
+                    pressed: false, modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..raw()
+        });
+        draw_game_menu(&ctx, &PanelSnapshot::default(), &mut state, &mut outputs);
+        let _ = end_pass(&ctx);
+        assert!(outputs.resume_game, "original XML target must resume gameplay");
+    }
+
+    #[test]
     fn native_pause_menu_draws_without_the_debug_overlay() {
         let ctx = Context::default();
         ctx.begin_pass(egui::RawInput::default());
@@ -2261,6 +2675,7 @@ mod tests {
                     form_id: 0x1234,
                     name: "Iron Armor".to_owned(),
                     category: "Armor",
+                    icon_path: String::new(),
                     details: "Armor rating 25.0".to_owned(),
                     count: 1,
                     value: 125,
@@ -2297,6 +2712,7 @@ mod tests {
                     form_id: 0x3EADD,
                     name: "Healing Potion".into(),
                     category: "Aid",
+                    icon_path: String::new(),
                     details: "Restores Health".into(),
                     count: 2,
                     value: 20,
@@ -2586,6 +3002,7 @@ mod tests {
             form_id: 0x1000 + index,
             name: name.to_owned(),
             category,
+            icon_path: String::new(),
             details: String::new(),
             count: 1,
             value: 1,

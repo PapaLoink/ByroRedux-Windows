@@ -71,3 +71,4 @@ crates/*/examples/tmp_*
 
 # Python bytecode (scripts/m-light tools)
 __pycache__/
+/saves

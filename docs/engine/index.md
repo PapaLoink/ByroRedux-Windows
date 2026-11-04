@@ -53,6 +53,7 @@ a working checkout and want to understand or change engine internals.
 | [AI Packages Completion — PRD](../prd/ai-packages-completion.md) | plugin, scripting, byroredux | PROPOSED (2026-11-01). M42 remainder: CastMagic, Find object types, UseWeapon classes, scheduling, FO4+ walk sources |
 | [VATS and Action Points — PRD](../prd/vats.md) | core, byroredux, ui | PROPOSED (2026-11-01). #6350 remainder: VATS menu, limb damage, playback camera, FO4 slow-motion lane |
 | [Oblivion Front End — PRD](../prd/oblivion-front-end.md) | byroredux, menuxml, audio, renderer | APPROVED (2026-11-03). Original startup videos and authored main menu; implementation in progress |
+| [Oblivion New Game — PRD](../prd/oblivion-new-game.md) | byroredux, menuxml, core, scripting | PROPOSED (2026-11-03). Original opening movie, interactive creation and prison tutorial flow |
 | [Game UI Integration — PRD](../prd/game-ui-integration.md) | ui, menuxml, byroredux | PROPOSED (2026-11-01). M48 remainder: method behaviour, gfx stubs, fonts, menu stack, Papyrus/ECS callbacks, HUD meters |
 | [Volumetric Lighting — PRD](../prd/volumetric-lighting.md) | renderer, plugin, byroredux | PROPOSED (2026-11-01). M55 remainder: REGN height fog, exterior light shafts, combustion boundary follow-ups |
 | [Reference-Quality Post-Process — PRD](../prd/reference-post-process.md) | renderer | PROPOSED (2026-11-01). M58 remainder: bloom filter and placement vs the upscaler, DOF, motion blur, 3D LUT grading, authored IMGS/IMAD lens fields |

@@ -471,7 +471,7 @@ impl Body {
 /// `depth` guards against pathological nesting; `seen_includes` breaks
 /// prefab include cycles (vanilla prefabs are acyclic, third-party ones
 /// are not guaranteed to be).
-fn parse_body(scanner: &mut Scanner, depth: usize) -> Body {
+fn parse_body(scanner: &mut Scanner, depth: usize, trait_name: Option<&str>) -> Body {
     let mut text = String::new();
     let mut ops = Vec::new();
     if depth > 64 {
@@ -516,6 +516,12 @@ fn parse_body(scanner: &mut Scanner, depth: usize) -> Body {
             scanner.pos += 1;
             continue;
         };
+        // Shipped Oblivion VideoMenu ends a coordinate with `<y>` instead
+        // of `</y>`. A bare reopening of this trait terminates its body;
+        // it must not consume the remaining menu as an unknown-op subtree.
+        if trait_name.is_some_and(|owner|name.eq_ignore_ascii_case(owner)) && attrs.trim().is_empty() && !self_closing {
+            break;
+        }
         let Some(kind) = OpKind::from_name(&name) else {
             log::debug!("menuxml: unknown op <{name}> ignored");
             if !self_closing {
@@ -535,7 +541,7 @@ fn parse_body(scanner: &mut Scanner, depth: usize) -> Body {
         } else if self_closing {
             OpArg::None
         } else {
-            parse_body(scanner, depth + 1).into_arg()
+            parse_body(scanner, depth + 1, None).into_arg()
         };
         ops.push(Op { kind, arg });
     }
@@ -785,7 +791,7 @@ fn parse_element_content(
             traits.insert(key, RawTrait::Num(0.0));
             continue;
         }
-        let body = parse_body(scanner, depth + 1);
+        let body = parse_body(scanner, depth + 1, Some(&key));
         traits.insert(key, body.into_trait());
     }
     ElementContent { traits, children }

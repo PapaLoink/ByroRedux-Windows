@@ -930,7 +930,7 @@ impl App {
 /// swapchain. Recreating it waits for device idle and rebuilds all
 /// render-sized targets, and repeated identical events cause visible stalls.
 /// Out-of-date presentation is handled separately by render_one_frame.
-fn should_recreate_for_window_resize(current: [u32; 2], requested: [u32; 2]) -> bool {
+pub(crate) fn should_recreate_for_window_resize(current: [u32; 2], requested: [u32; 2]) -> bool {
     requested[0] > 0 && requested[1] > 0 && current != requested
 }
 

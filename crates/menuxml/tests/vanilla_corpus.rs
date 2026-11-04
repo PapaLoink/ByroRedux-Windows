@@ -110,9 +110,11 @@ fn vanilla_corpus_parses() {
     );
     // #5329 — pinned so an include-resolution change that drops (or
     // fabricates) vanilla content fails here; both measured on the vanilla
-    // Oblivion `Misc.bsa`, unchanged across the #5329 fix.
-    assert_eq!(tiles, 1_868, "un-spliced vanilla tile total moved");
-    assert_eq!(spliced_tiles, 2_773, "include-spliced vanilla tile total moved");
+    // Oblivion `Misc.bsa`, unchanged across the #5329 fix. Re-measured
+    // 2026-11-03: recovering VideoMenu after its malformed `<y>` ending
+    // adds 84 authored tiles, or 193 with their prefabs expanded.
+    assert_eq!(tiles, 1_952, "un-spliced vanilla tile total moved");
+    assert_eq!(spliced_tiles, 2_966, "include-spliced vanilla tile total moved");
     let hud = hud.expect("hud_main_menu.xml in corpus");
     for name in [
         "hudmain_background",

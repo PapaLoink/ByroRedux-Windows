@@ -1409,6 +1409,9 @@ fn apply_operator(stack: &mut Vec<ObScriptValue>, token: &str) {
             }
         }
         "!" => flag(!truthy(pop(stack))),
+        // Legacy compiled expressions use '~' for unary numeric negation,
+        // not bitwise NOT. A negative pending-event sentinel must stay negative.
+        "~" => ObScriptValue::Num(-pop(stack)),
         _ => {
             // Unknown operator token: push a neutral zero to keep the
             // stack balanced. The corpus census covers every operator
@@ -1559,6 +1562,66 @@ mod tests {
 
     const SETSTAGE: u16 = 0x1039;
     const GETSTAGE: u16 = 0x103a;
+
+    #[test]
+    fn unary_negation_preserves_negative_values_and_other_stack_operands() {
+        for (expression,expected) in [(b" 1 ~".as_slice(),-1.0),(b" 5 2 ~ +",3.0),(b" 2 ~ ~",2.0)] {
+            let record=script(wrap_body(set_stmt(b'f',1,expression,0)),vec![local(1,"number",0)],vec![]);
+            let mut state=VmState::default();
+            let outcome=ObScriptProgram::new(&record).run_block(BLOCK_GAME_MODE,&mut state,&mut Recorder::default());
+            assert_eq!(outcome,BlockOutcome::Completed);
+            assert_eq!(state.locals.get(&1),Some(&expected));
+        }
+    }
+
+    #[test]
+    fn unary_negation_clears_a_pending_notification_without_repeating_it() {
+        // Independent engineering fixture: initialise a disabled sentinel,
+        // notify only when armed, then disable it again. No original text/code.
+        let text=b"Engineering notification";
+        let mut message=vec![1,0];
+        message.extend_from_slice(&(text.len() as u16).to_le_bytes());
+        message.extend_from_slice(text);
+        message.extend_from_slice(&[0,0,0,0]);
+        let body=[
+            arm_stmt(opcode::IF,&[s(1),b" 0 ==".to_vec()].concat()),
+            set_stmt(b's',2,b" 1 ~",0),set_stmt(b's',1,b" 1",0),simple_stmt(opcode::END_IF),
+            arm_stmt(opcode::IF,&[s(2),b" 0 >=".to_vec()].concat()),
+            stmt_call(CMD_MESSAGE_BOX,&message),set_stmt(b's',2,b" 1 ~",0),simple_stmt(opcode::END_IF),
+        ].concat();
+        let record=script(wrap_body(body),vec![local(1,"initialised",0),local(2,"pending",0)],vec![]);
+        let mut state=VmState::default();
+        let mut host=Recorder::default();
+        let program=ObScriptProgram::new(&record);
+        for _ in 0..12 {
+            assert_eq!(program.run_block(BLOCK_GAME_MODE,&mut state,&mut host),BlockOutcome::Completed);
+        }
+        assert!(host.messages.is_empty(),"disabled notification must not trigger on fresh state");
+        state.locals.insert(2,4.0);
+        for _ in 0..12 {
+            assert_eq!(program.run_block(BLOCK_GAME_MODE,&mut state,&mut host),BlockOutcome::Completed);
+        }
+        assert_eq!(host.messages.len(),1,"a legitimate notification fires once and stays cleared");
+        assert_eq!(state.locals.get(&2),Some(&-1.0));
+    }
+
+    #[test]
+    #[ignore = "requires the user's installed original Oblivion.esm"]
+    fn original_oblivion_vampire_script_keeps_dreams_disabled_on_fresh_state() {
+        let data=std::env::var_os("BYROREDUX_OBLIVION_DATA").map(std::path::PathBuf::from)
+            .unwrap_or_else(||std::path::PathBuf::from(r"C:\Program Files (x86)\Steam\steamapps\common\Oblivion\Data"));
+        let index=byroredux_plugin::esm::parse_esm(&std::fs::read(data.join("Oblivion.esm")).unwrap()).unwrap();
+        let record=index.scripts.get(&0x0003DB3C).expect("installed VampireScript");
+        assert_eq!(record.editor_id,"VampireScript");
+        let slot=record.locals.iter().find(|l|l.name.eq_ignore_ascii_case("randomdream")).unwrap().index as u16;
+        let mut state=VmState::default();
+        let mut host=Recorder::default();
+        for _ in 0..12 {
+            assert_eq!(ObScriptProgram::new(record).run_block(BLOCK_GAME_MODE,&mut state,&mut host),BlockOutcome::Completed);
+            assert_eq!(state.locals.get(&slot),Some(&-1.0));
+        }
+        assert!(host.messages.is_empty(),"no dream is pending in this fresh non-vampire fixture");
+    }
 
     /// Float-literal argument: `'z'` + a little-endian f64.
     fn za(v: f64) -> Vec<u8> {

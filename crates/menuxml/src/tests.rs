@@ -1850,3 +1850,56 @@ fn profiles_pin_corpus_facts() {
         assert!(profile.font_paths.len() >= 8);
     }
 }
+
+#[test]
+fn a_reopened_coordinate_trait_does_not_swallow_following_menu_tiles() {
+    use crate::parse::{MenuFileSource,parse_document};
+    struct NoIncludes;
+    impl MenuFileSource for NoIncludes {fn menu_xml(&self,_:&str)->Option<Vec<u8>>{None}}
+    // Independent fixture for the malformed coordinate ending in Oblivion's VideoMenu.
+    let document=parse_document(r#"<menu name="SyntheticMenu"><text name="label"><y><copy>12</copy><y>
+        <string>value</string></text><rect name="return"><id>1</id></rect></menu>"#,&mut NoIncludes);
+    assert!(document.name_index.contains_key("return"));
+    let label=&document.tiles[document.name_index["label"]];
+    assert!(label.traits.contains_key("string"));
+}
+
+#[test]
+fn menu_texture_leading_separator_is_archive_relative() {
+    struct Rooted;
+    impl MenuAssets for Rooted {
+        fn menu_xml(&self,path:&str)->Option<Vec<u8>> {
+            (path=="menus\\main\\hud_main_menu.xml").then(||br#"<menu name="Test">
+                <image name="Slider"><filename>\Menus\Shared\synthetic.dds</filename>
+                <width>8</width><height>8</height></image></menu>"#.to_vec())
+        }
+        fn texture(&self,path:&str)->Option<Vec<u8>> {
+            (path=="textures\\menus\\shared\\synthetic.dds").then(||dxt1_dds(8))
+        }
+        fn font(&self,_:u8)->Option<Vec<u8>>{None}
+        fn font_texture(&self,_:&str)->Option<Vec<u8>>{None}
+    }
+    let mut menu=MenuRenderer::load(&Rooted,"menus\\main\\hud_main_menu.xml",ScreenTraits::new(1280.0,720.0)).unwrap();
+    menu.render_frame(&Rooted);
+    assert!(menu.decoded.contains_key("textures\\menus\\shared\\synthetic.dds"));
+}
+
+#[test]
+fn childcount_sizes_an_engine_populated_list() {
+    let document=parse_document(r#"<menu name="Test"><rect name="List">
+        <height><copy src="me()" trait="childcount"/><mul>24</mul></height>
+        <rect name="A"/><rect name="B"/></rect></menu>"#,&mut src(&[]));
+    let strings=HashMap::new();let overrides=Overrides::new();
+    let mut eval=EvalState::new(&document,ScreenTraits::new(800.0,600.0),&strings,&overrides);
+    assert_eq!(eval.trait_value(document.name_index["list"],"height").as_num(),48.0);
+}
+
+#[test]
+fn bare_parent_selector_reads_the_containing_tile() {
+    let document=parse_document(r#"<menu name="Test"><rect name="Panel"><height>600</height><_buffer>64</_buffer>
+        <rect name="Body"><height><copy src="parent()" trait="height"/><sub src="parent" trait="_buffer"/></height></rect>
+        </rect></menu>"#,&mut src(&[]));
+    let strings=HashMap::new();let overrides=Overrides::new();
+    let mut eval=EvalState::new(&document,ScreenTraits::new(800.0,600.0),&strings,&overrides);
+    assert_eq!(eval.trait_value(document.name_index["body"],"height").as_num(),536.0);
+}

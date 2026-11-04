@@ -511,6 +511,8 @@ pub(crate) fn execute_pending_player_save_actions(
             let output = match action {
                 PlayerSaveAction::Quicksave => quicksave(world),
                 PlayerSaveAction::Quickload => quickload_latest(world),
+                PlayerSaveAction::SaveSlot(slot) => SaveCommand.execute(world, &slot.to_string()),
+                PlayerSaveAction::LoadSlot(slot) => LoadCommand.execute(world, &slot.to_string()),
             };
             (action, output)
         })

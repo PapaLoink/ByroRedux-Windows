@@ -45,7 +45,7 @@ use winit::window::Window;
 
 pub use panels::{
     BarterAction, BarterItemView, BarterSnapshot, CraftingAction, CraftingRecipeView, CraftingSnapshot, DialogueTopicEntryView, DialogueTopicSnapshot, DialogueUiAction, GameMenuPage, GameMenuState,
-    InteractionPrompt, InventoryAction, InventoryItemView, InventorySnapshot, MessageBoxView,
+    GameMenuArt, GameMenuHitTarget, InteractionPrompt, InventoryAction, InventoryItemView, InventorySnapshot, MessageBoxView,
     ObjectiveView, PanelOutputs, PanelSnapshot, PanelTab, QueuedLoad, VitalBarView,
 };
 
@@ -258,6 +258,152 @@ impl DebugUiState {
         self.panels.active_tab = PanelTab::Studio;
     }
 
+    /// Upload original Oblivion MenuXml pixels from the installed BSAs.
+    /// All game-facing artwork is drawn by MenuXml, not egui widgets.
+    pub fn install_game_menu_art(
+        &mut self,
+        pause: GameMenuArt,
+        inventory: Vec<GameMenuArt>,
+        options: Vec<GameMenuArt>,
+    ) -> Result<(), String> {
+        if inventory.len() != 5 || options.len() != 7 {
+            return Err("expected five original inventory and seven pause subpages".to_owned());
+        }
+        let upload = |name: String, art: GameMenuArt| {
+            Self::upload_original_art(&self.egui_ctx, &name, art)
+        };
+        let pause = upload("oblivion_pause".into(), pause)?;
+        let inventory = inventory.into_iter().enumerate().map(|(i, art)| {
+            upload(format!("oblivion_inventory_{i}"), art)
+        }).collect::<Result<Vec<_>,_>>()?;
+        let options = options.into_iter().enumerate().map(|(i, art)| {
+            upload(format!("oblivion_options_{i}"), art)
+        }).collect::<Result<Vec<_>,_>>()?;
+        self.game_menu.original_art = Some(panels::OriginalGameMenuArt {
+            pause, inventory, magic: Vec::new(), stats: Vec::new(), map: Vec::new(), options,
+        });
+        Ok(())
+    }
+
+    fn upload_original_art(
+        ctx: &egui::Context,
+        name: &str,
+        art: GameMenuArt,
+    ) -> Result<panels::GameMenuPicture, String> {
+        if art.width == 0 || art.height == 0 || art.width > 4096 || art.height > 4096
+            || art.rgba.len() != art.width * art.height * 4
+        {
+            return Err(format!("invalid {name} image dimensions or RGBA buffer"));
+        }
+        let image = egui::ColorImage::from_rgba_unmultiplied(
+            [art.width, art.height], &art.rgba,
+        );
+        Ok(panels::GameMenuPicture {
+            texture: ctx.load_texture(name, image, egui::TextureOptions::LINEAR),
+            width: art.width,
+            height: art.height,
+            targets: art.targets,
+        })
+    }
+
+    /// Update the five authentic inventory tab rasters from the live player
+    /// inventory, reusing their GPU textures. No engine inventory window.
+    pub fn update_original_inventory(&mut self, pages: Vec<GameMenuArt>) -> Result<(), String> {
+        let Some(art) = self.game_menu.original_art.as_mut() else {
+            return Ok(());
+        };
+        if pages.len() != art.inventory.len() {
+            return Err("original inventory tab count changed".into());
+        }
+        for (picture, page) in art.inventory.iter_mut().zip(pages) {
+            if page.width != picture.width || page.height != picture.height
+                || page.rgba.len() != page.width * page.height * 4
+            {
+                return Err("original inventory image dimensions changed".into());
+            }
+            picture.texture.set(
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [page.width, page.height], &page.rgba,
+                ),
+                egui::TextureOptions::LINEAR,
+            );
+            picture.targets = page.targets;
+        }
+        Ok(())
+    }
+
+    /// Refresh the original Options/Save/Load rasters when saves or
+    /// player settings change. The source XML stays the renderer.
+    pub fn update_original_options(&mut self, pages: Vec<GameMenuArt>) -> Result<(), String> {
+        let Some(art) = self.game_menu.original_art.as_mut() else {
+            return Ok(());
+        };
+        if pages.len() != art.options.len() {
+            return Err("original Options page count changed".into());
+        }
+        for (picture, page) in art.options.iter_mut().zip(pages) {
+            if page.width != picture.width || page.height != picture.height
+                || page.rgba.len() != page.width * page.height * 4
+            {
+                return Err("original Options dimensions changed".into());
+            }
+            picture.texture.set(
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [page.width, page.height], &page.rgba,
+                ),
+                egui::TextureOptions::LINEAR,
+            );
+            picture.targets = page.targets;
+        }
+        Ok(())
+    }
+
+    /// Install the five authored pages of each original Oblivion Tab
+    /// section. Reuse existing textures on subsequent openings.
+    pub fn install_original_sections(
+        &mut self, magic: Vec<GameMenuArt>, stats: Vec<GameMenuArt>,
+        map: Vec<GameMenuArt>,
+    ) -> Result<(), String> {
+        if magic.len() != 5 || stats.len() != 5 || map.len() != 5 {
+            return Err("original Tab section did not provide its five XML pages".into());
+        }
+        let Some(art) = self.game_menu.original_art.as_mut() else {
+            return Ok(());
+        };
+        fn update(
+            ctx: &egui::Context, group: &str,
+            pictures: &mut Vec<panels::GameMenuPicture>, pages: Vec<GameMenuArt>,
+        ) -> Result<(), String> {
+            if pictures.is_empty() {
+                for (i, page) in pages.into_iter().enumerate() {
+                    pictures.push(DebugUiState::upload_original_art(
+                        ctx, &format!("{group}_{i}"), page,
+                    )?);
+                }
+            } else {
+                for (picture, page) in pictures.iter_mut().zip(pages) {
+                    if page.width != picture.width || page.height != picture.height
+                        || page.rgba.len() != page.width * page.height * 4
+                    {
+                        return Err(format!("{group} page dimensions changed"));
+                    }
+                    picture.texture.set(
+                        egui::ColorImage::from_rgba_unmultiplied(
+                            [page.width, page.height], &page.rgba,
+                        ),
+                        egui::TextureOptions::LINEAR,
+                    );
+                    picture.targets = page.targets;
+                }
+            }
+            Ok(())
+        }
+        update(&self.egui_ctx, "oblivion_magic", &mut art.magic, magic)?;
+        update(&self.egui_ctx, "oblivion_stats", &mut art.stats, stats)?;
+        update(&self.egui_ctx, "oblivion_map", &mut art.map, map)?;
+        Ok(())
+    }
+
     pub fn game_menu_visible(&self) -> bool {
         self.game_menu.visible
     }
@@ -266,6 +412,23 @@ impl DebugUiState {
     /// pause landing page so Escape is a predictable escape hatch from any
     /// settings category.
     pub fn toggle_game_menu(&mut self) -> bool {
+        // Oblivion's Escape first returns through the original Options
+        // hierarchy, then closes the pause menu. Dialogue and other
+        // game-profile menus retain their established close behavior.
+        if self.game_menu.visible
+            && self.game_menu.original_art.is_some()
+            && self.game_menu.page == GameMenuPage::Settings
+        {
+            if self.game_menu.original_options_tab >= 5 {
+                self.game_menu.original_options_tab = 0;
+                self.game_menu.page = GameMenuPage::Pause;
+            } else if self.game_menu.original_options_tab != 0 {
+                self.game_menu.original_options_tab = 0;
+            } else {
+                self.game_menu.page = GameMenuPage::Pause;
+            }
+            return true;
+        }
         self.game_menu.visible = !self.game_menu.visible;
         if self.game_menu.visible {
             self.game_menu.page = GameMenuPage::Pause;
@@ -283,6 +446,14 @@ impl DebugUiState {
 
     pub fn inventory_menu_visible(&self) -> bool {
         self.game_menu.visible && self.game_menu.page == GameMenuPage::Inventory
+    }
+
+    pub fn original_inventory_scroll(&self) -> [usize; 5] {
+        self.game_menu.original_inventory_scroll
+    }
+
+    pub fn take_original_inventory_refresh(&mut self) -> bool {
+        std::mem::take(&mut self.game_menu.original_inventory_needs_refresh)
     }
 
     /// Open the native menu directly on the dialogue response surface

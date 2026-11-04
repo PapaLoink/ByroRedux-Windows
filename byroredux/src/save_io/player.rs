@@ -43,6 +43,8 @@ pub struct PlayerPose {
 pub enum PlayerSaveAction {
     Quicksave,
     Quickload,
+    SaveSlot(u32),
+    LoadSlot(u32),
 }
 
 impl PlayerSaveAction {
@@ -50,6 +52,8 @@ impl PlayerSaveAction {
         match self {
             Self::Quicksave => "player quicksave",
             Self::Quickload => "player quickload",
+            Self::SaveSlot(_) => "Oblivion Save menu slot",
+            Self::LoadSlot(_) => "Oblivion Load menu slot",
         }
     }
 }

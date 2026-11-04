@@ -3409,6 +3409,57 @@ Ground-truth milestone state: always confirm against [ROADMAP.md](../../ROADMAP.
 
 ---
 
+## Unary numeric negation and repeated vampire dreams (3 November 2026)
+
+Observed symptom: a new Oblivion prison session repeatedly displayed a vampire
+dream after dismissal. Read-only evidence is from installed Oblivion.exe
+1.2.0416 and `C:/Program Files (x86)/Steam/steamapps/common/Oblivion/Data/Oblivion.esm`,
+SCPT `0003DB3C` (`VampireScript`). Its numeric local `randomdream` (slot 8)
+initializes to -1 and resets to -1 after a pending dream is shown. The compiled
+numeric expression at offset `0x001F` uses the postfix `~` operator for
+unary negation. These are independently recorded format/behavior facts;
+neither original source nor proprietary fixture bytes are included here.
+
+The shared VM had no `~` operator arm. Its unknown-operator fallback pushed
+zero, so the disabled sentinel became zero, satisfying the first dream's
+condition. Resetting it failed in the same way, allowing repeated messages.
+The fix implements numeric negation of the top stack operand, leaving other
+operands intact. It does not suppress vampire messages, change original
+scripts, or modify player state/saves to hide the symptom.
+
+Before the fix, both independent synthetic tests failed: arithmetic returned
+zero instead of -1, and a disabled notification repeatedly fired. The optional
+installed-script test also failed with slot 8 equal to zero. Synthetic cases
+cover nested negation, operands beneath a negated value, fresh-state silence,
+and a legitimately armed notification firing once then remaining cleared.
+The installed-script test executes twelve passes with fresh non-vampire
+stub answers, checking the sentinel and absence of dream messages. This is
+original-record script execution evidence, not a complete vampirism gameplay
+comparison with the original executable.
+
+The arithmetic fix is shared with New Vegas; the scripting regression suite
+contains separate Oblivion/Fallout host cases. No installed New Vegas
+vampirism, character state or runtime behavior is claimed from this fix.
+
+Native Windows Rust 1.96.0/MSVC scripting tests with the save feature passed:
+1,314 passed, 0 failed, 12 ignored. The installed-script test was run explicitly
+and passed after failing on the unfixed interpreter. No installed content,
+personal configuration or user saves were changed.
+
+The native Windows release build passed. A fresh direct-cell smoke loaded
+`ImperialDungeon01` and 255 original quest-script definitions, then ran for
+approximately 70 seconds after cell readiness. At targeted quest-host Debug
+logging there were no script MessageBoxes, dream notifications, errors or
+panics. Frame/scheduler metrics continued throughout; normal window close
+returned exit code 0 with clean Vulkan teardown. Temporary engine saves were
+isolated from user saves. This bounded smoke covers the reported fresh-session
+symptom, not all vampirism states or the still-partial New/creation lifecycle.
+
+Local verification transcripts use `%TEMP%/byroredux-vampire-before.log`,
+`byroredux-vampire-original-before.log`, `byroredux-vampire-after.log`,
+`byroredux-vampire-original-after.log`, `byroredux-vampire-build.log` and
+`byroredux-vampire-smoke.stderr.log`.
+
 ## References
 
 - [Papyrus Category](https://falloutck.uesp.net/wiki/Category:Papyrus)

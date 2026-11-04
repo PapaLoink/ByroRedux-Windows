@@ -363,8 +363,38 @@ impl MenuRenderer {
     }
 
     /// Tile index by name, for drivers that want to probe traits.
+    /// Graft host MenuXml using original-game UI textures. The source
+    /// game's menu manager provided cross-menu navigation outside these XMLs.
+    pub fn graft_inline_fragment(
+        &mut self,
+        xml: &str,
+        parent_name: &str,
+        new_name: &str,
+    ) -> Result<usize, MenuError> {
+        let wrapped = format!("<rect name=\"{new_name}\">\n{xml}\n</rect>");
+        struct NoExternalFiles;
+        impl MenuFileSource for NoExternalFiles {
+            fn menu_xml(&self, _path: &str) -> Option<Vec<u8>> { None }
+        }
+        let mut source = NoExternalFiles;
+        let fragment = parse_document(&wrapped, &mut source);
+        let parent = self.doc.name_index
+            .get(&parent_name.to_lowercase()).copied()
+            .ok_or_else(|| MenuError::MissingTile(parent_name.to_string()))?;
+        Ok(self.doc.graft_subtree(&fragment, 0, parent, Some(new_name)))
+    }
+
     pub fn tile(&self, name: &str) -> Option<usize> {
         self.doc.name_index.get(&name.to_lowercase()).copied()
+    }
+
+    /// Give runtime-cloned Gamebryo list entries clickable IDs.
+    pub fn set_runtime_target_id(&mut self, tile: usize, id: i32) -> bool {
+        if tile >= self.doc.tiles.len() || self.doc.tiles[tile].kind == crate::parse::TileKind::Template {
+            return false;
+        }
+        self.doc.tiles[tile].id = Some(id);
+        true
     }
 
     pub fn screen(&self) -> ScreenTraits {
@@ -467,7 +497,7 @@ impl MenuRenderer {
     /// Resolve an authored `<filename>` to a decoded texture through the
     /// resolution-class table (`Menus\…` → `textures\menus…\…`).
     fn texture(&mut self, assets: &dyn MenuAssets, filename: &str, _zoom: f32) -> Option<Arc<Rgba8>> {
-        let normalized = filename.trim().replace('/', "\\");
+        let normalized = filename.trim().trim_start_matches(['/', '\\']).replace('/', "\\");
         let cache_key = normalized.to_lowercase();
         if let Some(cached) = self.tex_cache.get(&cache_key) {
             return cached.clone();

@@ -4,6 +4,7 @@ mod media;
 mod saves;
 mod host;
 mod presentation;
+mod options;
 pub(crate) use saves::SceneStartArgs;
 use anyhow::{bail, Result};
 use byroredux_audio::AudioWorld;
@@ -24,7 +25,7 @@ fn next_phase(phase: Phase, count: usize) -> Phase {
         Phase::Startup(_) => Phase::Title, Phase::Title|Phase::Credits|Phase::Menu => Phase::Menu }
 }
 #[derive(Debug,Clone,Copy)]
-pub(super) enum Action { None, Load(u32), Quit }
+pub(super) enum Action { None, New, Options, Load(u32), Quit }
 
 struct Movie {
     decoder: Decoder, metadata: Option<Metadata>, sound: Option<byroredux_audio::Sound>,
@@ -73,7 +74,7 @@ pub(crate) struct FrontEnd {
     phase:Phase, movie:Option<Movie>, video:Option<Rgba8>, menu_image:Option<Rgba8>,
     targets:Vec<HitTarget>, focus:Option<i32>, dirty:bool, music_started:bool,
     size:(u32,u32), texture:Option<u32>, saves:Vec<saves::SaveSlot>,
-    settings:byroredux_debug_ui::panels::GameMenuState, show_saves:bool,
+    settings:Option<options::OptionsMenu>, show_saves:bool, show_new:bool,
     notice:Option<String>, action:Action,
 }
 impl FrontEnd {
@@ -85,14 +86,15 @@ impl FrontEnd {
         menu.set_override("MainMenu","user1",2.0);
         menu.set_override("MainMenu","user2",0.0);
         menu.set_override("MainMenu","user3",0.0);
-        menu.set_override("main_new","visible",0.0);
+        menu.set_override("main_new","visible",2.0);
         let saves=saves::slots(world);
-        for tile in ["main_continue","main_load"] { menu.set_override(tile,"visible",if saves.is_empty(){0.0}else{2.0}); }
+        menu.set_override("main_continue","visible",if saves.is_empty(){0.0}else{2.0});
+        menu.set_override("main_load","visible",2.0);
         let movie=Some(Movie::new(&config.startup[0])?);
-        log::warn!("front-end compatibility: New Game and original Bethesda saves are unsupported; Options uses engine settings");
+        log::warn!("front-end compatibility: New starts the original prison scene; character creation/tutorial and original Bethesda saves remain incomplete; Options uses engine settings");
         Ok(Self { config,assets,menu,phase:Phase::Startup(0),movie,video:None,menu_image:None,targets:Vec::new(),focus:None,
             dirty:true,music_started:false,size:(0,0),texture:None,saves,
-            settings:Default::default(),show_saves:false,notice:None,action:Action::None })
+            settings:Default::default(),show_saves:false,show_new:false,notice:None,action:Action::None })
     }
     fn advance(&mut self,audio:&mut AudioWorld)->Result<()> {
         let loop_frame = if self.phase==Phase::Menu { self.video.take() } else { None };
@@ -119,9 +121,9 @@ impl FrontEnd {
         Ok(())
     }
     fn choose(&mut self,id:i32) {
-        self.action=match id { 2=>self.saves.first().map_or(Action::None,|s|Action::Load(s.number)),
+        self.action=match id { 3=>{self.show_new=true;Action::None}, 2=>self.saves.first().map_or(Action::None,|s|Action::Load(s.number)),
             4=>{self.show_saves=true;Action::None},
-            5=>{self.settings.visible=true;self.settings.page=byroredux_debug_ui::panels::GameMenuPage::Settings;Action::None},
+            5=>Action::Options,
             6=>Action::None,7=>Action::Quit,_=>Action::None };
         if id==6 { self.phase=Phase::Credits;self.movie.take(); }
     }
@@ -132,9 +134,10 @@ impl FrontEnd {
         self.dirty=true;
     }
     pub(super) fn input(&mut self,event:UiInputEvent,audio:&mut AudioWorld)->Result<()> {
-        if self.settings.visible || self.show_saves {
+        if let Some(settings)=self.settings.as_mut(){settings.input(event);return Ok(());}
+        if self.show_saves || self.show_new || self.notice.is_some() {
             if matches!(event,UiInputEvent::KeyDown{ref key} if key.logical_key==UiLogicalKey::Named(UiNamedKey::Escape)) {
-                self.settings.visible=false;self.show_saves=false;
+                self.show_saves=false;self.show_new=false;self.notice=None;
             }
             return Ok(());
         }
@@ -159,9 +162,12 @@ impl FrontEnd {
                 UiLogicalKey::Named(UiNamedKey::Enter) | UiLogicalKey::Character(' ')=>if let Some(id)=self.focus{self.choose(id);},
                 UiLogicalKey::Named(UiNamedKey::ArrowLeft|UiNamedKey::ArrowRight|UiNamedKey::Tab)=> {
                     if !self.targets.is_empty() {
-                        let i=self.targets.iter().position(|t|Some(t.id)==self.focus).unwrap_or(0);
-                        let step=if key.logical_key==UiLogicalKey::Named(UiNamedKey::ArrowLeft){self.targets.len()-1}else{1};
-                        self.focus(Some(self.targets[(i+step)%self.targets.len()].id));
+                        let left=key.logical_key==UiLogicalKey::Named(UiNamedKey::ArrowLeft);
+                        let i=self.targets.iter().position(|t|Some(t.id)==self.focus)
+                            .map_or(if left{self.targets.len()-1}else{0},|i| {
+                                (i+if left{self.targets.len()-1}else{1})%self.targets.len()
+                            });
+                        self.focus(Some(self.targets[i].id));
                     }
                 },_=>{}
             },_=>{}
@@ -175,6 +181,21 @@ mod tests {
     use super::*;
     #[test]
     #[ignore = "requires the user's installed original Oblivion data"]
+    fn front_end_original_title_music_decodes_to_finite_non_silent_audio() {
+        let data=std::env::var_os("BYROREDUX_OBLIVION_DATA").map(std::path::PathBuf::from)
+            .unwrap_or_else(||std::path::PathBuf::from(r"C:\Program Files (x86)\Steam\steamapps\common\Oblivion\Data"));
+        let config=Config::load(&data).unwrap();
+        let bytes=std::fs::read(&config.music).unwrap();
+        let sound=byroredux_audio::load_sound_from_bytes(bytes).expect("complete original title MP3 decode");
+        assert_eq!(sound.sample_rate,44100);
+        let duration=sound.frames.len() as f64 / sound.sample_rate as f64;
+        // Installed TES4Title.mp3: ffprobe reports 110.942042 s. Allow encoder padding.
+        assert!((110.0..112.0).contains(&duration),"decoded duration: {duration}");
+        assert!(sound.frames.iter().all(|f|f.left.is_finite() && f.right.is_finite()));
+        assert!(sound.frames.iter().any(|f|f.left.abs()>0.01 || f.right.abs()>0.01));
+    }
+    #[test]
+    #[ignore = "requires the user's installed original Oblivion data"]
     fn front_end_original_menu_and_movie_resources_smoke() {
         let data=std::env::var_os("BYROREDUX_OBLIVION_DATA").map(std::path::PathBuf::from)
             .unwrap_or_else(||std::path::PathBuf::from(r"C:\Program Files (x86)\Steam\steamapps\common\Oblivion\Data"));
@@ -182,11 +203,11 @@ mod tests {
         let assets=crate::hud::HudAssets::oblivion(&config.data).unwrap();
         let mut menu=MenuRenderer::load(&assets,"menus\\options\\main_menu.xml",ScreenTraits::new(1706.0,960.0)).unwrap();
         menu.set_override("MainMenu","user3",0.0);
-        menu.set_override("main_new","visible",0.0);
+        menu.set_override("main_new","visible",2.0);
         menu.set_override("main_continue","visible",0.0);
-        menu.set_override("main_load","visible",0.0);
+        menu.set_override("main_load","visible",2.0);
         let targets=menu.hit_targets();
-        assert_eq!(targets.iter().map(|t|t.id).collect::<Vec<_>>(),vec![5,6,7]);
+        assert_eq!(targets.iter().map(|t|t.id).collect::<Vec<_>>(),vec![3,4,5,6,7]);
         for t in &targets {assert!(t.rect.w>40.0&&t.rect.h>0.0);println!("authored target {} {:?}",t.id,t.rect);}
         let pixels=menu.render_frame(&assets);
         assert!(pixels.chunks_exact(4).any(|p|p[3]>0));

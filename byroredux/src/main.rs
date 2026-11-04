@@ -44,6 +44,8 @@ mod inventory;
 mod notifications;
 mod objectives;
 mod front_end;
+mod oblivion_game_menu;
+mod oblivion_secondary_menu;
 mod hud;
 mod linear_capture;
 mod list_cells;
@@ -1409,6 +1411,15 @@ impl App {
             self.camera_forward_override,
             &mut self.streaming,
         );
+        // Gamebryo's original Escape/Tab artwork is sourced from the local
+        // Oblivion installation. Other game profiles keep their native UI.
+        let args = crate::cli_args::effective_args();
+        let size = self.renderer.as_ref().unwrap().swapchain_extent();
+        if let Some(ui) = self.debug_ui.as_mut() {
+            if let Err(error) = crate::oblivion_game_menu::install(ui, &args, size) {
+                log::warn!("Original Oblivion gameplay menus unavailable: {error:#}; engine menu retained");
+            }
+        }
     }
 
     /// Route native window input to the focused Scaleform menu before world
@@ -1525,9 +1536,48 @@ impl App {
             .as_mut()
             .is_some_and(byroredux_debug_ui::DebugUiState::toggle_game_menu);
         if opened {
+            self.refresh_original_options_art();
             self.release_world_input_for_ui();
         } else {
             self.capture_world_input();
+        }
+    }
+
+    fn refresh_original_options_art(&mut self) {
+        let args = crate::cli_args::effective_args();
+        let size = self.renderer.as_ref().map(|r| r.swapchain_extent());
+        if let (Some(ui), Some(size)) = (self.debug_ui.as_mut(), size) {
+            if let Err(error) = crate::oblivion_game_menu::refresh_options(
+                &self.world, ui, &args, size,
+            ) {
+                log::warn!("Could not refresh original Oblivion Options/Save menus: {error:#}");
+            }
+        }
+    }
+
+    fn refresh_original_inventory_art(&mut self) {
+        let inventory = crate::inventory::snapshot(&self.world);
+        let args = crate::cli_args::effective_args();
+        let size = self.renderer.as_ref().map(|r| r.swapchain_extent());
+        if let (Some(ui), Some(size)) = (self.debug_ui.as_mut(), size) {
+            let scroll = ui.original_inventory_scroll();
+            if let Err(error) = crate::oblivion_game_menu::refresh_inventory(
+                ui, &args, size, inventory.as_ref(), scroll,
+            ) {
+                log::warn!("Could not refresh original Oblivion inventory: {error:#}");
+            }
+        }
+    }
+
+    fn refresh_original_secondary_art(&mut self) {
+        let args = crate::cli_args::effective_args();
+        let size = self.renderer.as_ref().map(|r| r.swapchain_extent());
+        if let (Some(ui), Some(size)) = (self.debug_ui.as_mut(), size) {
+            if let Err(error) = crate::oblivion_secondary_menu::refresh(
+                &self.world, ui, &args, size,
+            ) {
+                log::warn!("Original Oblivion Stats/Magic/Map rendering unavailable: {error:#}");
+            }
         }
     }
 
@@ -1541,6 +1591,8 @@ impl App {
         Self::leave_dialogue_page(&self.world, dialogue_page);
         crate::barter::end_barter(&mut self.world);
         crate::crafting::end_crafting(&self.world);
+        self.refresh_original_inventory_art();
+        self.refresh_original_secondary_art();
         if let Some(ui) = self.debug_ui.as_mut() {
             ui.open_inventory_menu();
             self.release_world_input_for_ui();
@@ -1776,6 +1828,24 @@ fn apply_debug_ui_outputs(
                 "pause menu quickload",
                 byroredux_core::console::CommandOutput::error(error),
             );
+        }
+    }
+    for (slot, action) in [
+        (outputs.save_slot, save_io::PlayerSaveAction::SaveSlot as fn(u32) -> save_io::PlayerSaveAction),
+        (outputs.load_slot, save_io::PlayerSaveAction::LoadSlot as fn(u32) -> save_io::PlayerSaveAction),
+    ] {
+        if let Some(slot) = slot {
+            if let Err(error) = save_io::queue_player_save_action(world, action(slot)) {
+                surface_save_load_output(
+                    debug_ui.as_deref_mut(), "original Oblivion save/load menu",
+                    byroredux_core::console::CommandOutput::error(error),
+                );
+            }
+        }
+    }
+    if let Some(form_id) = outputs.selected_spell {
+        if !crate::oblivion_secondary_menu::select_known_spell(world, form_id) {
+            log::warn!("original Oblivion Magic selection refused unknown player spell {form_id:08X}");
         }
     }
     let mut settings_changed = false;

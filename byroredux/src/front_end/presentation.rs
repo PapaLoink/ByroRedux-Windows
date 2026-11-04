@@ -25,12 +25,14 @@ impl FrontEnd {
         }
         if self.dirty && self.phase==Phase::Menu {
             self.targets=self.menu.hit_targets();
-            if self.focus.is_none() {self.focus(self.targets.first().map(|t|t.id));}
             let (w,h)=self.menu.frame_size();
             self.menu_image=Some(Rgba8 {width:w,height:h,pixels:self.menu.render_frame(&self.assets).to_vec()});
             self.dirty=false;
             log::debug!("front-end: authored targets {:?}",self.targets.iter().map(|t|(&t.name,t.rect)).collect::<Vec<_>>());
         }
+        let options_image=if let Some(settings)=self.settings.as_mut() {
+            Some(settings.frame(&self.assets,self.menu.screen(),&world.resource::<byroredux_core::settings::SettingsRegistry>())?)
+        }else{None};
         let mut frame=Framebuffer::new(width,height);frame.clear([0,0,0,255]);
         if let Some(image)=&self.video {
             let scale=(width as f32/image.width as f32).min(height as f32/image.height as f32);
@@ -38,7 +40,7 @@ impl FrontEnd {
             blit(&mut frame,image,Rect{x:(width as f32-w)/2.0,y:(height as f32-h)/2.0,w,h});
         }
         if self.phase==Phase::Menu {
-            if let Some(image)=&self.menu_image {blit(&mut frame,image,Rect{x:0.0,y:0.0,w:width as f32,h:height as f32});}
+            if let Some(image)=options_image.as_ref().or(self.menu_image.as_ref()) {blit(&mut frame,image,Rect{x:0.0,y:0.0,w:width as f32,h:height as f32});}
         }
         let upload=byroredux_renderer::upload_ctx!(ctx);
         if let Some(handle)=self.texture {

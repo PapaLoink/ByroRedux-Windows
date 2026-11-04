@@ -39,6 +39,7 @@ pub(crate) fn snapshot(world: &World) -> Option<byroredux_debug_ui::InventorySna
                 |definition| definition.name.clone(),
             ),
             category: definition.map_or("Unknown", |definition| definition.category),
+            icon_path: definition.map_or_else(String::new, |definition| definition.icon_path.clone()),
             details: match (&improvement, definition) {
                 (Some(improved), Some(definition)) if definition.details.is_empty() => improved.clone(),
                 (Some(improved), Some(definition)) => format!("{} | {improved}", definition.details),

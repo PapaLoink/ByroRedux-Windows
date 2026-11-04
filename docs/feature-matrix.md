@@ -6,13 +6,34 @@ run the engine, what do you see?
 
 **Legend:** ✓ Working · ~ Partial / known gaps · ✗ Not started · — Not applicable
 
+**Oblivion repeated vampire-dream regression:** the shared ObScript VM now
+implements compiled unary numeric negation, preserving the original script's
+negative "no dream pending" sentinel. This fixes an interpreter defect rather
+than disabling vampire notifications. Original-executable vampirism parity and
+New Vegas installed behavior remain unverified; see the
+[script evidence](engine/scripting.md#unary-numeric-negation-and-repeated-vampire-dreams-3-november-2026).
+
 **Native Windows front end (3 November 2026):** Oblivion is partial. Bare
 `--esm Oblivion.esm` discovery and failed-startup scheduler handling are fixed;
 3,465 application tests and the installed original-menu/movie resource smoke
-test pass. Full presentation/input parity, New Game and Bethesda saves remain
+test pass. New now enters the original prison marker with an explicit partial-support notice;
+Load offers validated engine slots. Complete character creation/tutorial,
+original presentation/input parity and Bethesda save interoperability remain
 unverified or unsupported. New Vegas has synthetic shared discovery coverage,
 but this Oblivion-specific front-end route does not support it. See the
 [startup regression evidence](engine/oblivion-front-end.md).
+
+**Main-menu Options:** original Oblivion MenuXml replaces the engine settings
+panel. Crosshair, mouse controls and key bindings use the existing settings
+backend. Original Video/Audio and other gameplay settings remain unsupported.
+See [implementation evidence](engine/oblivion-front-end.md). New Vegas settings
+presentation remains unverified by this Oblivion-specific route.
+
+**Startup diagnostics:** Oblivion's front end now shares the duplicate-size
+resize guard, and recovered MP3 padding notices are quiet by default while
+warnings/errors remain visible. Native release startup and full installed title
+track decoding passed; original-runtime audio fidelity and New Vegas installed
+music remain unverified. See [verification evidence](engine/oblivion-front-end.md).
 
 **Oblivion menu typography:** the FNT ascent/spacing mix-up is corrected using
 the installed Kingthings font metrics and documented layout. MenuXml synthetic
